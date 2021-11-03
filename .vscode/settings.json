@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "cmath": "c",
+    "*.tcc": "c",
+    "math.h": "c"
+  }
+}
