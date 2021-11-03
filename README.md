@@ -10,7 +10,7 @@
 |        [@dmstmdrbs](https://github.com/dmstmdrbs)        |       [@yurim77](https://github.com/yurim77)        |
 
 
-### How to compile
+### How to compile 🛠
 ```sh
   make  
 
