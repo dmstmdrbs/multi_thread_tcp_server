@@ -2,6 +2,7 @@
   "files.associations": {
     "cmath": "c",
     "*.tcc": "c",
-    "math.h": "c"
+    "math.h": "c",
+    "echolib.h": "c"
   }
 }

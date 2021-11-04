@@ -27,13 +27,79 @@
 
 #define MAX_THREAD 4
 
+void* serve_connection (void* sockfd);
+int check_prime(int n, int socket_id);
+/*
+  N threas in thread pool : thread pool execute task itself
+    -> wait and get a task from Task Queue
+
+  Task Queue <- from main thread, insert & create a task
+*/
 typedef struct c_semaphore{
   int count;
   pthread_mutex_t mutex;
   pthread_cond_t cv;
 } c_semaphore;
+typedef struct Task{
+    void (*taskFunction)(int* ,char*); /* function pointer */
+    int* arg1;
+    char* arg2;
+    int* socket_id;
+} Task;
 
 struct c_semaphore connection_thread_pool;
+
+Task TaskQueue[256];
+int task_count = 0;
+pthread_mutex_t mutex_for_queue;
+pthread_mutex_t mutex_for_task;
+pthread_cond_t condQueue;
+pthread_cond_t taskCond;
+
+/* TODO : Implementation with linked-list */
+
+void getRequest(int* arg1, char* line, int socket_id){
+    int is_prime = check_prime(atoi(line),socket_id);
+
+    if(is_prime) strcpy(line, "1\n");
+    else strcpy(line, "0\n");
+    *arg1 = 1;
+    pthread_cond_signal(&taskCond);
+}
+
+void executeTask(Task* task){
+  task->taskFunction(task->arg1,task->arg2);
+}
+
+void submitTask(Task task){
+  pthread_mutex_lock(&mutex_for_queue);
+  /* TODO : push into linked list */
+  TaskQueue[task_count] = task;
+  task_count++;
+  pthread_mutex_unlock(&mutex_for_queue);
+  pthread_cond_signal(&condQueue);
+}
+
+void* startThread(void* args){
+    while(1){
+        Task task;
+        pthread_mutex_lock(&mutex_for_queue);
+        // wait if there is no task in queue
+        while(task_count==0){
+          pthread_cond_wait(&condQueue, &mutex_for_queue);
+        }
+        ////////////////////////////////////////////
+        /* TODO : Implementation with linked-list */
+        task = TaskQueue[0];
+        for(int i=0;i<task_count -1;i++){
+          TaskQueue[i] = TaskQueue[i+1];
+        }
+        task_count--;
+        ////////////////////////////////////////////
+        pthread_mutex_unlock(&mutex_for_queue);
+        executeTask(&task);
+    }
+}
 
 int init_c_semaphore(c_semaphore* sem, int pshared, int value){
   if(pshared) { errno = ENOSYS; return -1;}
@@ -58,22 +124,17 @@ void c_sem_client_wait_to_connect(c_semaphore* sem){
   pthread_mutex_lock(&sem->mutex);
   while(sem->count==0){
     /* unlcok mutex and waits signal in sleep state */
+    //if (shutting_down) goto quit;
     pthread_cond_wait(&sem->cv,&sem->mutex);
   }
   sem->count--;
   pthread_mutex_unlock(&sem->mutex);
 }
 
-void*
-serve_connection (void* sockfd);
-
-void* test(void* sockfd){
-  fprintf(stdout, "test function : %d\n",(int)sockfd);
-}
-void
-server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
+void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
+  /* check connection */
   c_sem_client_wait_to_connect(sem);
-  //serve_connection (sockfd);
+
   /* create threads */
   int rc;
   fprintf(stdout,"remain sem->count : %d\n",sem->count);
@@ -98,13 +159,15 @@ server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   
 }
 
-int check_prime(int n){
+int check_prime(int n, int socket_id){
+
   if(n<=1) return 0;
 
   for(int i=2; i<=n/2;i++){
-    if(n % i == 0) return 0;
+    if(n % i == 0) {printf("[%d] %d is not prime number\n",socket_id,n); return 0;}
   }
 
+  printf("[%d] %d is prime number\n",socket_id,n);
   return 1;
 }
 
@@ -120,6 +183,8 @@ serve_connection (void* void_sockfd) {
   connection_init (&conn);
   conn.sockfd = sockfd;
   while (! shutting_down) {
+    /* submit Task into TaskQueue */
+
     if ((n = readline (&conn, line, MAXLINE)) == 0) goto quit;
     /* connection closed by other end */
     if (shutting_down) goto quit;
@@ -127,15 +192,31 @@ serve_connection (void* void_sockfd) {
       perror ("readline failed");
       goto quit;
     }
-
-  ///////////////////////////////////////////
-  /* check if a given number (line) is prime */
-    int is_prime = check_prime(atoi(line));
-
-    if(is_prime) strcpy(line, "1\n");
-    else strcpy(line, "0\n");
+    
+    //int number = atoi(line);
+    //printf("number : %d\n",number);
+    int done = 0;
+    Task t = {
+      .taskFunction = &getRequest,
+      // .arg1 = conn,
+      .arg1 = &done,
+      .arg2 = line,
+      .socket_id = sockfd,
+    };
+    //printf("before submit\n");
+    submitTask(t);
+    //printf("after submit\n");
     n = 2; // strlen(line) == 2
-  ///////////////////////////////////////////
+    
+    pthread_mutex_lock(&mutex_for_task);
+    //printf("after mutex lock\n");
+    while(done==0){
+      //printf("in while\n");
+      if (shutting_down) goto quit;
+      pthread_cond_wait(&taskCond, &mutex_for_task);
+    }
+    //printf("after while\n");
+    pthread_mutex_unlock(&mutex_for_task);
 
     result = writen (&conn, line, n);
     if (shutting_down) goto quit;
@@ -209,6 +290,17 @@ main (int argc, char **argv) {
   /* init new local variable */
   /* TODO : Init new data structure for threads list */
   pthread_t threads[MAX_THREAD];
+  pthread_cond_init(&condQueue,NULL);
+  pthread_cond_init(&taskCond,NULL);
+  pthread_mutex_init(&mutex_for_queue,NULL);
+  pthread_mutex_init(&mutex_for_task,NULL);
+  /* create thread in pool */
+  for(int i=0;i<MAX_THREAD;i++){
+    if(pthread_create(&threads[i], NULL, &startThread, NULL) !=0 ){
+      perror("Failed to create t he thread");
+    }
+  }
+
   int rc;
   long t = 0;
   long status;
@@ -248,8 +340,10 @@ main (int argc, char **argv) {
     }
   }
   /////////////////////////////////////
-
-
+  pthread_mutex_destroy(&mutex_for_queue);
+  pthread_mutex_destroy(&mutex_for_task);
+  pthread_cond_destroy(&condQueue);
+  pthread_cond_destroy(&taskCond);
   CHECK (close (listenfd));
   return 0;
 }
