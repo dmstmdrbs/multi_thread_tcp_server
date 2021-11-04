@@ -34,8 +34,6 @@ typedef struct c_semaphore{
 } c_semaphore;
 
 struct c_semaphore connection_thread_pool;
-pthread_t threads[MAX_THREAD];
-
 
 int init_c_semaphore(c_semaphore* sem, int pshared, int value){
   if(pshared) { errno = ENOSYS; return -1;}
@@ -73,12 +71,12 @@ void* test(void* sockfd){
   fprintf(stdout, "test function : %d\n",(int)sockfd);
 }
 void
-server_handoff (int sockfd, c_semaphore* sem) {
+server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   c_sem_client_wait_to_connect(sem);
   //serve_connection (sockfd);
   /* create threads */
   int rc;
-  fprintf(stdout,"sem->count : %d\n",sem->count);
+  fprintf(stdout,"remain sem->count : %d\n",sem->count);
   fflush(stdout);
   rc = pthread_create(&threads[sem->count - 1], NULL, serve_connection, (void*)sockfd);
   
@@ -148,6 +146,7 @@ serve_connection (void* void_sockfd) {
   }
 quit:
   c_sem_client_disconnect(&connection_thread_pool);
+  fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
   CHECK (close (conn.sockfd));
 }
 
@@ -209,7 +208,7 @@ main (int argc, char **argv) {
 
   /* init new local variable */
   /* TODO : Init new data structure for threads list */
-
+  pthread_t threads[MAX_THREAD];
   int rc;
   long t = 0;
   long status;
@@ -231,7 +230,7 @@ main (int argc, char **argv) {
     } else {
       
       /* TODO : Select thread from threads */
-      server_handoff (connfd, &connection_thread_pool); /* process the connection */
+      server_handoff (connfd, &connection_thread_pool, &threads); /* process the connection */
       /////////////////////////////////////
       /////////////////////////////////////
     }
