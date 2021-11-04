@@ -1,0 +1,29 @@
+==========st201821328 on Linux===================================
+==========compilation=============================
+make: Nothing to be done for 'default'.
+==========testing=================================
+==========server outputs===================
+==========stdout==========
+timer: testing  ../multisrv 10 in testdir on Linux ---------------
+==========stderr==========
+server using port 55449
+timer: received Interrupt
+timer: interrupted
+timer: user 121 ms system 1258 ms 
+timer: messages sent: 0 received: 0
+timer: max resident set: 1644 page faults: major 0 minor: 81
+==========driver outputs===================
+driver: (version 2) concurrency = 12; iterations = 10000
+  0: completed 10000 iterations: connection wait time    0 ms, real time  220 ms, CPU time  150 ms
+  1: completed 10000 iterations: connection wait time    0 ms, real time  410 ms, CPU time  140 ms
+  2: completed 10000 iterations: connection wait time    0 ms, real time  610 ms, CPU time  140 ms
+  3: completed 10000 iterations: connection wait time    0 ms, real time  840 ms, CPU time  140 ms
+  4: completed 10000 iterations: connection wait time    0 ms, real time 1060 ms, CPU time  150 ms
+  5: completed 10000 iterations: connection wait time    0 ms, real time 1240 ms, CPU time  120 ms
+  6: completed 10000 iterations: connection wait time 1030 ms, real time  570 ms, CPU time  120 ms
+  7: completed 10000 iterations: connection wait time 1030 ms, real time  380 ms, CPU time  120 ms
+  8: completed 10000 iterations: connection wait time 1030 ms, real time 1120 ms, CPU time  120 ms
+  9: completed 10000 iterations: connection wait time 1030 ms, real time  760 ms, CPU time  120 ms
+ 10: completed 10000 iterations: connection wait time 1030 ms, real time  940 ms, CPU time  130 ms
+ 11: completed 10000 iterations: connection wait time 1030 ms, real time 1320 ms, CPU time  130 ms
+==========done====================================
