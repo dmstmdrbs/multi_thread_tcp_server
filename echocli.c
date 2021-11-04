@@ -108,28 +108,28 @@ client_work (int sockfd) {
   conn.sockfd = sockfd;
   while ((p = fgets (sendline, sizeof (sendline), stdin))) {
     char** isPrime = generateRandomNumber(sendline);
-    
+    // Request N times
     for(int i=0;i<atoi(sendline);i++){
-      //fprintf(stdout, "number[%d] : %d\n",i, isPrime[i]);
-      //char* toCheckNumber = malloc(sizeof(char)*(int)log10(isPrime[i]));
-      //toCheckNumber = itoa(isPrime[i], toCheckNumber, 10);
-      fprintf(stdout, "number : %s",isPrime[i]);
+      fprintf(stdout, "request number : %s",isPrime[i]);
       CHECK (writen (&conn, isPrime[i], strlen(isPrime[i])));
-      if (readline (&conn, recvline, MAXLINE) <= 0){
+
+      // Each response from server
+      if (readline (&conn, recvline, sizeof(recvline)) <= 0){
         ERR_QUIT ("str_cli: server terminated connection prematurely");
       }
-      fprintf (stdout, "%d ",atoi(isPrime[i])); /* rely that line contains "/n" */
-      if(atoi(recvline)==0){
-        fprintf (stdout, "is not prime number\n"); 
-      }else if(atoi(recvline)==1){
-        fprintf (stdout, "is prime number\n"); 
-      }else{
+      /* rely that line contains "/n" */
+      if(atoi(recvline)==1){
+        fprintf (stdout, "response : %d is prime number\n",atoi(isPrime[i])); 
+      }
+      else if(atoi(recvline)==0){
+        fprintf (stdout, "response : %d is not prime number\n",atoi(isPrime[i])); 
+      }
+      else{
         fprintf (stdout, "\t%s\n",recvline);
       }
+      
       fflush (stdout);
-  
     }
-    
   }
   /* null pointer returned by fgets indicates EOF */
 }
