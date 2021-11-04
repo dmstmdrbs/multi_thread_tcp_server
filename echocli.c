@@ -17,9 +17,11 @@
 #include "config.h"
 #include "echolib.h"
 #include "checks.h"
+#include "pthread.h"
 #include <sys/time.h>
 #include <math.h>
 
+char** rand_nums;
 
 // Function to swap two numbers
 void swap(char *x, char *y) {
@@ -80,21 +82,52 @@ char* itoa(int value, char* buffer, int base)
     return reverse(buffer, 0, i - 1);
 }
 
-char **generateRandomNumber(char line[]){
+void generateRandomNumber (int N) {
 
-  int N = atoi(line);
-
-  char **numbers=(char**)malloc(sizeof(char*)*N);
+  rand_nums=(char**)malloc(sizeof(char*)*N);
 
   for(int i=0; i<N; i++)
   {
-    numbers[i] = (char*)malloc(sizeof(char)*MAXLINE);
+    rand_nums[i] = (char*)malloc(sizeof(char)*MAXLINE);
     char* buffer = (char*)malloc(sizeof(char)*MAXLINE);
-    strcpy(numbers[i], itoa(rand() % 1000,buffer,10)); 
+    strcpy(rand_nums[i], itoa(rand() % 100000, buffer, 10)); 
   }
  
-  return numbers;
 }
+
+void removeRandomNumber () {
+  free(rand_nums);
+}
+
+
+void*
+receive_thread_work (void* void_conn) {
+
+  char recvline[MAXLINE];
+  connection_t *con = (connection_t*)void_conn;
+
+  for (int i=0; i<con->line_len; i++) {
+
+    // Each response from server
+    if (readline (con, recvline, sizeof(recvline)) <= 0){
+        ERR_QUIT ("str_cli: server terminated connection prematurely");
+    }
+
+    // rely that line contains "/n" 
+    if (atoi(recvline) == 1) {
+        fprintf (stdout, "response : %d is prime number\n", atoi(rand_nums[i])); 
+    } else if(atoi(recvline) == 0) {
+        fprintf (stdout, "response : %d is not prime number\n", atoi(rand_nums[i])); 
+    } else {
+        fprintf (stdout, "\t%s\n",recvline);
+    } 
+
+    fflush (stdout);
+
+  } // end of for
+
+}
+
 
 /* the main service loop of the client; assumes sockfd is a
    connected socket */
@@ -102,35 +135,47 @@ void
 client_work (int sockfd) {
   connection_t conn;
   char *p;
-  char sendline[MAXLINE], recvline[MAXLINE];
+  char sendline[MAXLINE];
+  pthread_t rcv_thread;
+  int rc;
+  long status;
   
   connection_init (&conn);
   conn.sockfd = sockfd;
-  while ((p = fgets (sendline, sizeof (sendline), stdin))) {
-    char** isPrime = generateRandomNumber(sendline);
-    // Request N times
-    for(int i=0;i<atoi(sendline);i++){
-      fprintf(stdout, "request number : %s",isPrime[i]);
-      CHECK (writen (&conn, isPrime[i], strlen(isPrime[i])));
 
-      // Each response from server
-      if (readline (&conn, recvline, sizeof(recvline)) <= 0){
-        ERR_QUIT ("str_cli: server terminated connection prematurely");
-      }
-      /* rely that line contains "/n" */
-      if(atoi(recvline)==1){
-        fprintf (stdout, "response : %d is prime number\n",atoi(isPrime[i])); 
-      }
-      else if(atoi(recvline)==0){
-        fprintf (stdout, "response : %d is not prime number\n",atoi(isPrime[i])); 
-      }
-      else{
-        fprintf (stdout, "\t%s\n",recvline);
-      }
-      
-      fflush (stdout);
+  while ((p = fgets (sendline, sizeof (sendline), stdin))) {
+
+//////////////////////////////////////////////
+    generateRandomNumber(atoi(sendline)); // Generate N random numbers, malloc()
+    conn.line_len = atoi(sendline); // input N (# of random numbers)
+
+    // crate receive thread ; readline()
+    rc = pthread_create(&rcv_thread, NULL, receive_thread_work, (void*)&conn);
+  
+    if (rc) {
+      fprintf(stdout, "Error; return code from pthread_create() is %d\n", rc);
+      fflush(stdout);
+      exit (-1);
+    } 
+
+    // send ; writen()
+    for(int i=0; i<conn.line_len; i++) {
+      CHECK (writen (&conn, rand_nums[i], strlen(rand_nums[i])));
     }
-  }
+
+    // join thread
+    rc = pthread_join(rcv_thread, (void**)&status);
+
+    if (rc) {
+      fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+      fflush(stdout);
+      exit(-1);
+    }
+//////////////////////////////////////////////
+    
+    removeRandomNumber(); // free()
+  } // end of while
+
   /* null pointer returned by fgets indicates EOF */
 }
 
