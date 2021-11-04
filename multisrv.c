@@ -59,6 +59,7 @@ pthread_cond_t taskCond;
 /* TODO : Implementation with linked-list */
 
 void getRequest(int* arg1, char* line, int socket_id){
+    usleep(50000);
     int is_prime = check_prime(atoi(line),socket_id);
 
     if(is_prime) strcpy(line, "1\n");
