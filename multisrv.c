@@ -25,6 +25,8 @@
 #include "echolib.h"
 #include "checks.h"
 
+#define MAX_THREAD 4
+
 void
 serve_connection (int sockfd);
 
@@ -45,6 +47,16 @@ server_handoff (int sockfd) {
   
 }
 
+int check_prime(int n){
+  if(n<=1) return 0;
+
+  for(int i=2; i<=n/2;i++){
+    if(n % i == 0) return 0;
+  }
+
+  return 1;
+}
+
 /* the main per-connection service loop of the server; assumes
    sockfd is a connected socket */
 void
@@ -62,6 +74,16 @@ serve_connection (int sockfd) {
       perror ("readline failed");
       goto quit;
     }
+
+  ///////////////////////////////////////////
+  /* check if a given number (line) is prime */
+    int is_prime = check_prime(atoi(line));
+
+    if(is_prime) strcpy(line, "1\n");
+    else strcpy(line, "0\n");
+    n = 2; // strlen(line) == 2
+  ///////////////////////////////////////////
+
     result = writen (&conn, line, n);
     if (shutting_down) goto quit;
     if (result != n) {
@@ -119,12 +141,20 @@ main (int argc, char **argv) {
   int connfd, listenfd;
   socklen_t clilen;
   struct sockaddr_in cliaddr;
-
+  
+  /////////////////////////////////////
   /* NOTE: To make this multi-threaded, You may need insert
      additional initialization code here, but you will not need to
      modify anything below here, though you are permitted to
      change anything in this file if you feel it is necessary for
      your design */
+
+  /* init new local variable */
+  pthread_t threads[MAX_THREAD];
+  int rc;
+  long t = 0;
+  long status;
+  /////////////////////////////////////
 
   install_siginthandler();
   open_listening_socket (&listenfd);
@@ -137,9 +167,34 @@ main (int argc, char **argv) {
       if (errno != EINTR) ERR_QUIT ("accept"); 
       /* otherwise try again, unless we are shutting down */
     } else {
-     server_handoff (connfd); /* process the connection */
+      //server_handoff (connfd); /* process the connection */
+      /////////////////////////////////////
+        /* create threads */
+        rc = pthread_create(&threads[t++], NULL, serve_connection, (void*)connfd);
+
+        if (rc) {
+          fprintf(stdout, "Error; return code from pthread_create() is %d\n", rc);
+          fflush(stdout);
+          exit (-1);
+        } 
+      /////////////////////////////////////
     }
   }
+
+  /////////////////////////////////////
+  /* join threads */
+  for(t=0; t<MAX_THREAD; t++){
+  	rc = pthread_join(threads[t], (void**)&status);
+
+    if (rc) {
+      fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+      fflush(stdout);
+	    exit(-1);
+    }
+  }
+  /////////////////////////////////////
+
+
   CHECK (close (listenfd));
   return 0;
 }
