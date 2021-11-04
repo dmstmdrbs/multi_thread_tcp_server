@@ -85,7 +85,7 @@ serve_connection (int sockfd) {
       goto quit;
     }
     /* check the prime num */
-    int isPrime = check_prime(atoi(line), strlen(line));
+    int isPrime = check_prime(atoi(line));
 
     if(isPrime==0){
       fprintf (stdout, "%d is not prime number\n",atoi(line));
