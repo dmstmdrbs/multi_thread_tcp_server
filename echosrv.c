@@ -28,7 +28,7 @@
   by seunggyun
   date : 2021/11/03
 */
-int check_prime(int n, int length){
+int check_prime(int n){
   int isPrime = 1;
   if(n==1){
     return 0;
