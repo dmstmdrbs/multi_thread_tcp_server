@@ -27,13 +27,66 @@
 
 #define MAX_THREAD 4
 
-void
-serve_connection (int sockfd);
+typedef struct c_semaphore{
+  int count;
+  pthread_mutex_t mutex;
+  pthread_cond_t cv;
+} c_semaphore;
 
-void
-server_handoff (int sockfd) {
-  serve_connection (sockfd);
+struct c_semaphore connection_thread_pool;
+pthread_t threads[MAX_THREAD];
 
+
+int init_c_semaphore(c_semaphore* sem, int pshared, int value){
+  if(pshared) { errno = ENOSYS; return -1;}
+  sem->count = value;
+  pthread_mutex_init(&sem->mutex, NULL);
+  pthread_cond_init(&sem->cv,NULL);
+}
+
+void c_sem_client_disconnect(c_semaphore* sem){
+  pthread_mutex_lock(&sem->mutex);
+  sem->count++;
+  if(sem->count==1){
+    /* to notice with cv for waiting semaphore */
+    pthread_mutex_unlock(&sem->mutex);
+    pthread_cond_signal(&sem->cv);
+  }else{
+    pthread_mutex_unlock(&sem->mutex);
+  }
+}
+
+void c_sem_client_wait_to_connect(c_semaphore* sem){
+  pthread_mutex_lock(&sem->mutex);
+  while(sem->count==0){
+    /* unlcok mutex and waits signal in sleep state */
+    pthread_cond_wait(&sem->cv,&sem->mutex);
+  }
+  sem->count--;
+  pthread_mutex_unlock(&sem->mutex);
+}
+
+void*
+serve_connection (void* sockfd);
+
+void* test(void* sockfd){
+  fprintf(stdout, "test function : %d\n",(int)sockfd);
+}
+void
+server_handoff (int sockfd, c_semaphore* sem) {
+  c_sem_client_wait_to_connect(sem);
+  //serve_connection (sockfd);
+  /* create threads */
+  int rc;
+  fprintf(stdout,"sem->count : %d\n",sem->count);
+  fflush(stdout);
+  rc = pthread_create(&threads[sem->count - 1], NULL, serve_connection, (void*)sockfd);
+  
+  if (rc) {
+    fprintf(stdout, "Error; return code from pthread_create() is %d\n", rc);
+    fflush(stdout);
+    exit (-1);
+  } 
 /* NOTE: You will need to completely rewrite this function, so
    that it hands off the connection to one of your server threads,
    moving the call to serve_connection() into the server thread
@@ -59,8 +112,10 @@ int check_prime(int n){
 
 /* the main per-connection service loop of the server; assumes
    sockfd is a connected socket */
-void
-serve_connection (int sockfd) {
+void*
+serve_connection (void* void_sockfd) {
+  fprintf(stdout,"serve_connection\n");
+  int sockfd = (int)void_sockfd;
   ssize_t  n, result;
   char line[MAXLINE];
   connection_t conn;
@@ -92,6 +147,7 @@ serve_connection (int sockfd) {
     }
   }
 quit:
+  c_sem_client_disconnect(&connection_thread_pool);
   CHECK (close (conn.sockfd));
 }
 
@@ -136,12 +192,14 @@ install_siginthandler () {
   CHECK (sigaction (SIGINT, &act, NULL));
 }
 
+
+
 int
 main (int argc, char **argv) {
   int connfd, listenfd;
   socklen_t clilen;
   struct sockaddr_in cliaddr;
-  
+
   /////////////////////////////////////
   /* NOTE: To make this multi-threaded, You may need insert
      additional initialization code here, but you will not need to
@@ -150,10 +208,14 @@ main (int argc, char **argv) {
      your design */
 
   /* init new local variable */
-  pthread_t threads[MAX_THREAD];
+  /* TODO : Init new data structure for threads list */
+
   int rc;
   long t = 0;
   long status;
+  /* thread pool for connection with client */
+
+  init_c_semaphore(&connection_thread_pool, NULL, MAX_THREAD);
   /////////////////////////////////////
 
   install_siginthandler();
@@ -167,16 +229,10 @@ main (int argc, char **argv) {
       if (errno != EINTR) ERR_QUIT ("accept"); 
       /* otherwise try again, unless we are shutting down */
     } else {
-      //server_handoff (connfd); /* process the connection */
+      
+      /* TODO : Select thread from threads */
+      server_handoff (connfd, &connection_thread_pool); /* process the connection */
       /////////////////////////////////////
-        /* create threads */
-        rc = pthread_create(&threads[t++], NULL, serve_connection, (void*)connfd);
-
-        if (rc) {
-          fprintf(stdout, "Error; return code from pthread_create() is %d\n", rc);
-          fflush(stdout);
-          exit (-1);
-        } 
       /////////////////////////////////////
     }
   }
