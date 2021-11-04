@@ -95,10 +95,14 @@ void generateRandomNumber (int N) {
  
 }
 
-void removeRandomNumber () {
-  free(rand_nums);
-}
+//////////////////////////////////////////////
+void removeRandomNumber (int N) {
 
+  for(int i=0; i<N; i++) free(rand_nums[i]);
+  free(rand_nums);
+
+}
+//////////////////////////////////////////////
 
 void*
 receive_thread_work (void* void_conn) {
@@ -128,7 +132,6 @@ receive_thread_work (void* void_conn) {
 
 }
 
-
 /* the main service loop of the client; assumes sockfd is a
    connected socket */
 void
@@ -145,7 +148,6 @@ client_work (int sockfd) {
 
   while ((p = fgets (sendline, sizeof (sendline), stdin))) {
 
-//////////////////////////////////////////////
     generateRandomNumber(atoi(sendline)); // Generate N random numbers, malloc()
     conn.line_len = atoi(sendline); // input N (# of random numbers)
 
@@ -171,9 +173,11 @@ client_work (int sockfd) {
       fflush(stdout);
       exit(-1);
     }
+
 //////////////////////////////////////////////
-    
-    removeRandomNumber(); // free()
+    removeRandomNumber(atoi(sendline)); // free()
+//////////////////////////////////////////////
+
   } // end of while
 
   /* null pointer returned by fgets indicates EOF */
