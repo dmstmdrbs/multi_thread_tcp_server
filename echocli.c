@@ -157,7 +157,10 @@ client_work (int sockfd) {
   conn.sockfd = sockfd;
 
   while ((p = fgets (sendline, sizeof (sendline), stdin))) {
-
+    if(shutting_down){
+      printf("server shutting down\n");
+      break;
+    }
     // generateRandomNumber(atoi(sendline));
     conn.line_len = atoi(sendline); // input N (# of random numbers)
 

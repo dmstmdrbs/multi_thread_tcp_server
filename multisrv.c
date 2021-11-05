@@ -24,70 +24,28 @@
 #include "pthread.h"
 #include "echolib.h"
 #include "checks.h"
+#include "thread_deque.h"
 
 #define MAX_THREAD 4
+#define QUEUE_LEN 256
 
 void* serve_connection (void* sockfd);
 int check_prime(int n, int socket_id);
-/*
-  N threas in thread pool : thread pool execute task itself
-    -> wait and get a task from Task Queue
 
-  Task Queue <- from main thread, insert & create a task
-*/
 typedef struct c_semaphore{
   int count;
   pthread_mutex_t mutex;
   pthread_cond_t cv;
 } c_semaphore;
-typedef struct Task{
-    void (*taskFunction)(int*, char*, int , connection_t*); /* function pointer */
-    connection_t* conn;
-    int* arg1;
-    char* arg2;
-    int* socket_id;
-} Task;
 
 struct c_semaphore connection_thread_pool;
 pthread_t threads[MAX_THREAD];
 int rc;
 long t = 0;
 long status;
-#define QUEUE_LEN 256
-int queue_num = 0;
-int queue_front = -1;
-int queue_rear = -1;
+
 Task TaskQueue[QUEUE_LEN];
-
-int isEmpty(void){
-    if(queue_front==queue_rear)//front와 rear가 같으면 큐는 비어있는 상태 
-        return 1;
-    else return 0;
-}
-int isFull(void){
-    int tmp=(queue_rear+1)%QUEUE_LEN; //원형 큐에서 rear+1을 MAX로 나눈 나머지값이
-    if(tmp==queue_front)//front와 같으면 큐는 가득차 있는 상태 
-        return 1;
-    else
-        return 0;
-}
-void addq(Task newTask){
-    if(isFull())
-        printf("Queue is Full.\n");
-    else{
-         queue_rear = (queue_rear+1)%QUEUE_LEN;
-         TaskQueue[queue_rear]=newTask;
-        }
-
-}
-Task deleteq(){
-    if(isEmpty())
-        printf("Queue is Empty.\n");
-    else{
-        queue_front = (queue_front+1)%QUEUE_LEN;
-        return TaskQueue[queue_front];
-    }
-}
+TaskDeque deque;
 
 int task_count = 0;
 pthread_mutex_t mutex_for_queue;
@@ -122,7 +80,6 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     n = strlen(buffer); // strlen(line) == 2
     
     if (shutting_down){
-      // free(buffer);
       c_sem_client_disconnect(&connection_thread_pool);
       printf("getRequest2\n");
       rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
@@ -134,23 +91,22 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
       fprintf(stdout,"getRequest2 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
-    if ( writen (conn, buffer, n) != n) {
-      // free(buffer);
-      perror ("writen failed");
+
+    if (writen (conn, buffer, n) != n) {
       c_sem_client_disconnect(&connection_thread_pool);
-      printf("getRequest3\n");
+
       rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
       if(rc){
           fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
           fflush(stdout);
           exit(-1);
       }
-      fprintf(stdout,"getRequest3 : remain sem->count : %d\n",connection_thread_pool.count);
+
+      fprintf(stdout,"getRequest : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     free(buffer);
     pthread_cond_signal(&taskCond);
-    //CHECK (close (conn.sockfd));
 }
 
 void executeTask(Task* task){
@@ -159,38 +115,34 @@ void executeTask(Task* task){
 
 void submitTask(Task task){
   pthread_mutex_lock(&mutex_for_queue);
-  /* TODO : push into linked list */
-  // TaskQueue[task_count] = task;
-  // task_count++;
-  printf("submit\n");
-  addq(task);
+
+  printf("in submitTask : after mutex lock\n");
+  add_rear(&deque, task);
+
   pthread_mutex_unlock(&mutex_for_queue);
+
   pthread_cond_signal(&condQueue);
 }
 
 void* startThread(void* args){
     while(!shutting_down){
-        printf("thread\n");
         Task task;
         pthread_mutex_lock(&mutex_for_queue);
         // wait if there is no task in queue
-        while(!shutting_down&&isEmpty()){
-          printf("wait\n");
+        while(!shutting_down&&isEmpty(&deque)){
+          printf("in startThread : waiting\n");
           pthread_cond_wait(&condQueue, &mutex_for_queue);
-          
         }
-        ////////////////////////////////////////////
-        /* TODO : Implementation with linked-list */
+
         if(!shutting_down){
-          printf("deteteq\n");
-          task = deleteq();
-        ////////////////////////////////////////////
+          printf("task poped from deque\n");
+          task = pop_front(&deque);
+
           pthread_mutex_unlock(&mutex_for_queue);
-          printf("unlock mutex for queue\n");
+
+          printf("unlock mutex for deque\n");
           executeTask(&task);
         }else{
-          // exit(0);
-          //pthread_cond_broadcast(&taskCond);
           pthread_mutex_unlock(&mutex_for_queue);
           break;
         }
@@ -213,25 +165,21 @@ void c_sem_client_disconnect(c_semaphore* sem){
     /* to notice with cv for waiting semaphore */
     pthread_mutex_unlock(&sem->mutex);
     if(shutting_down){
-      //pthread_cond_broadcast(&taskCond);
       pthread_cond_broadcast(&sem->cv);
     }
     else pthread_cond_signal(&sem->cv);
   }else{
     pthread_mutex_unlock(&sem->mutex);
     if(shutting_down){
-      //pthread_cond_broadcast(&taskCond);
       pthread_cond_broadcast(&sem->cv);
     }
   }
-  
 }
 
 void c_sem_client_wait_to_connect(c_semaphore* sem){
   pthread_mutex_lock(&sem->mutex);
   while(sem->count==0 && !shutting_down){
     pthread_cond_wait(&sem->cv,&sem->mutex);
-    
   }
   if(shutting_down){
     pthread_mutex_unlock(&sem->mutex);
@@ -243,34 +191,29 @@ void c_sem_client_wait_to_connect(c_semaphore* sem){
 
 void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   /* check connection */
-  fprintf(stdout,"server_handout start\n");
+  fprintf(stdout,"server_handout : start\n");
   c_sem_client_wait_to_connect(sem);
 
-  fprintf(stdout,"server_handout start2\n");
+  fprintf(stdout,"server_handout : connect client \n");
   /* create threads */
   int rc;
-  printf("server_handoff\n");
   fprintf(stdout,"server_handoff : remain sem->count : %d\n",sem->count);
   fflush(stdout);
+
   rc = pthread_create(&threads[sem->count - 1], NULL, serve_connection, (void*)sockfd);
-  fprintf(stdout,"server_handout after create thread\n");
   if (rc) {
     fprintf(stdout, "Error; return code from pthread_create() is %d\n", rc);
     fflush(stdout);
     exit (-1);
   } 
-
+  fprintf(stdout,"server_handoff : after create thread, end\n");
 }
 
 int check_prime(int n, int socket_id){
-
   if(n<=1) return 0;
-
   for(int i=2; i<=n/2;i++){
     if(n % i == 0) return 0;
   }
-
-  //printf("[%d] %d is prime number\n",socket_id,n);
   return 1;
 }
 
@@ -297,8 +240,6 @@ serve_connection (void* void_sockfd) {
       goto quit;
     }
     
-    //int number = atoi(line);
-    //printf("number : %d\n",number);
     int done = 0;
     Task t = {
       .taskFunction = &getRequest,
@@ -307,20 +248,18 @@ serve_connection (void* void_sockfd) {
       .arg2 = line,
       .socket_id = sockfd,
     };
-    //printf("before submit\n");
     submitTask(t);
-    //printf("after submit\n");
-    
     
     pthread_mutex_lock(&mutex_for_task);
-    //printf("after mutex lock\n");
+
     while(done==0){
-      //printf("in while\n");
       if (shutting_down) goto quit;
       pthread_cond_wait(&taskCond, &mutex_for_task);
-      if (shutting_down) goto quit;
-    }
+      if (shutting_down) {
 
+        goto quit;
+      }
+    }
     pthread_mutex_unlock(&mutex_for_task);
   }
 quit:
@@ -385,15 +324,8 @@ main (int argc, char **argv) {
   socklen_t clilen;
   struct sockaddr_in cliaddr;
 
-  /////////////////////////////////////
-  /* NOTE: To make this multi-threaded, You may need insert
-     additional initialization code here, but you will not need to
-     modify anything below here, though you are permitted to
-     change anything in this file if you feel it is necessary for
-     your design */
-
   install_siginthandler();
-  printf("hear1\n");
+  init_deque(&deque);
   /* init new local variable */
   /* TODO : Init new data structure for threads list */
 
@@ -403,17 +335,12 @@ main (int argc, char **argv) {
   pthread_mutex_init(&mutex_for_queue,NULL);
   pthread_mutex_init(&mutex_for_task,NULL);
   /* create thread in pool */
-  printf("hea2\n");
+
   for(int i=0;i<MAX_THREAD;i++){
     if(pthread_create(&threads_pool[i], NULL, &startThread, NULL) !=0 ){
       perror("Failed to create t he thread");
     }
   }
-  // for(int i=0;i<MAX_THREAD;i++){
-  //   if(pthread_create(&connection_threads[i], NULL, &startThread, NULL) !=0 ){
-  //     perror("Failed to create t he thread");
-  //   }
-  // }
 
   int rc;
   long t = 0;
@@ -421,31 +348,26 @@ main (int argc, char **argv) {
   /* thread pool for connection with client */
 
   init_c_semaphore(&connection_thread_pool, NULL, MAX_THREAD);
-  printf("hea31\n");
+
   /////////////////////////////////////
 
   open_listening_socket (&listenfd);
   CHECK (listen (listenfd, 4));
   /* allow up to 4 queued connection requests before refusing */
   while (! shutting_down) {
-    printf("while31\n");
     errno = 0;
     clilen = sizeof (cliaddr); /* length of address can vary, by protocol */
     if ((connfd = accept (listenfd, (struct sockaddr *) &cliaddr, &clilen)) < 0) {
       if (errno != EINTR) ERR_QUIT ("accept"); 
       /* otherwise try again, unless we are shutting down */
     } else {
-       printf("else\n");
       /* TODO : Select thread from threads */
       server_handoff (connfd, &connection_thread_pool, &threads); /* process the connection */
-      /////////////////////////////////////
-      /////////////////////////////////////
     }
   }
   pthread_cond_broadcast(&connection_thread_pool.cv);
   pthread_cond_broadcast(&taskCond);
   pthread_cond_broadcast(&condQueue);
-  printf("in main thread\n");
   /////////////////////////////////////
   /* join threads */
   for(t=0;t<MAX_THREAD;t++){
@@ -456,17 +378,7 @@ main (int argc, char **argv) {
 	     exit(-1);
     }
   }
-  // for(t=0; t<4-connection_thread_pool.count; t++){
-  // 	rc = pthread_join(threads[t], (void**)&status);
-    
-  //   if (rc) {
-  //     fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
-  //     fflush(stdout);
-	//     exit(-1);
-  //   }
-  //   printf("join thread tid : [%d]", t);
-  // }
-  /////////////////////////////////////
+
   pthread_mutex_destroy(&mutex_for_queue);
   pthread_mutex_destroy(&mutex_for_task);
   pthread_cond_destroy(&condQueue);
