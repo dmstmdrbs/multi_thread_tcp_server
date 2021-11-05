@@ -57,13 +57,60 @@ pthread_cond_t condQueue;
 pthread_cond_t taskCond;
 
 /* TODO : Implementation with linked-list */
-
+// Function to swap two numbers
+void swap(char *x, char *y) {
+    char t = *x; *x = *y; *y = t;
+}
+// Function to reverse `buffer[i…j]`
+char* reverse(char *buffer, int i, int j)
+{
+    while (i < j) {
+        swap(&buffer[i++], &buffer[j--]);
+    }
+    return buffer;
+}
+// Iterative function to implement `itoa()` function in C
+char* itoa(int value, char* buffer, int base)
+{
+    // invalid input
+    if (base < 2 || base > 32) {
+        return buffer;
+    }
+    // consider the absolute value of the number
+    int n = abs(value);
+    int i = 0;
+    while (n)
+    {
+        int r = n % base;
+        if (r >= 10) {
+            buffer[i++] = 65 + (r - 10);
+        }
+        else {
+            buffer[i++] = 48 + r;
+        }
+        n = n / base;
+    }
+    // if the number is 0
+    if (i == 0) {
+        buffer[i++] = '0';
+    }
+    // If the base is 10 and the value is negative, the resulting string
+    // is preceded with a minus sign (-)
+    // With any other base, value is always considered unsigned
+    if (value < 0 && base == 10) {
+        buffer[i++] = '-';
+    }
+    buffer[i] = '\n'; // null terminate string
+    // reverse the string and return it
+    return reverse(buffer, 0, i - 1);
+}
 void getRequest(int* arg1, char* line, int socket_id){
     usleep(50000);
     int is_prime = check_prime(atoi(line),socket_id);
-
-    if(is_prime) strcpy(line, "1\n");
-    else strcpy(line, "0\n");
+    char* buffer = malloc(sizeof(char)*10);
+    strcpy(line, itoa(is_prime, buffer, 10));
+    if(is_prime) strcat(line, " is prime number\n");
+    else strcpy(line, " is not prime number\n");
     *arg1 = 1;
     pthread_cond_signal(&taskCond);
 }
@@ -207,7 +254,7 @@ serve_connection (void* void_sockfd) {
     //printf("before submit\n");
     submitTask(t);
     //printf("after submit\n");
-    n = 2; // strlen(line) == 2
+    
     
     pthread_mutex_lock(&mutex_for_task);
     //printf("after mutex lock\n");
@@ -217,8 +264,9 @@ serve_connection (void* void_sockfd) {
       pthread_cond_wait(&taskCond, &mutex_for_task);
     }
     //printf("after while\n");
+    
     pthread_mutex_unlock(&mutex_for_task);
-
+    n = strlen(line); // strlen(line) == 2
     result = writen (&conn, line, n);
     if (shutting_down) goto quit;
     if (result != n) {
