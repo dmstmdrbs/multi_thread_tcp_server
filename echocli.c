@@ -34,7 +34,7 @@ char* reverse(char *buffer, int i, int j)
     while (i < j) {
         swap(&buffer[i++], &buffer[j--]);
     }
- 
+    
     return buffer;
 }
  
@@ -75,13 +75,14 @@ char* itoa(int value, char* buffer, int base)
     if (value < 0 && base == 10) {
         buffer[i++] = '-';
     }
- 
-    buffer[i] = '\n'; // null terminate string
+    buffer[i++] = '\n';
+    buffer[i] = '\0'; // null terminate string
  
     // reverse the string and return it
-    return reverse(buffer, 0, i - 1);
+    return reverse(buffer, 0, i - 2);
 }
 
+/*
 void generateRandomNumber (int N) {
 
   rand_nums=(char**)malloc(sizeof(char*)*N);
@@ -95,10 +96,13 @@ void generateRandomNumber (int N) {
  
 }
 
-void removeRandomNumber () {
-  free(rand_nums);
-}
+void removeRandomNumber (int N) {
 
+  for(int i=0; i<N; i++) free(rand_nums[i]);
+  free(rand_nums);
+
+}
+*/
 
 void*
 receive_thread_work (void* void_conn) {
@@ -106,40 +110,55 @@ receive_thread_work (void* void_conn) {
   char recvline[MAXLINE];
   connection_t *con = (connection_t*)void_conn;
 
-  for (int i=0; i<con->line_len; i++) {
+  for (int i=0; i<con->line_len; i++) { // same as for(i=0; i<N; i++
 
     // Each response from server
     if (readline (con, recvline, sizeof(recvline)) <= 0){
         ERR_QUIT ("str_cli: server terminated connection prematurely");
     }
-
+/*
     // rely that line contains "/n" 
-    fprintf (stdout, "%s",recvline);
-    
+    if (atoi(recvline) == 1) {
+        fprintf (stdout, "prime number\n", ); 
+    } else if(atoi(recvline) == 0) {
+        fprintf (stdout, "NOT prime number\n"); 
+    } else {
+        fprintf (stdout, "\t%s\n",recvline);
+    } 
+*/
+    fprintf (stdout, "%s", recvline);
     fflush (stdout);
+
   } // end of for
 
 }
-
 
 /* the main service loop of the client; assumes sockfd is a
    connected socket */
 void
 client_work (int sockfd) {
+/* variables */
+  // connection
   connection_t conn;
   char *p;
   char sendline[MAXLINE];
+
+  // thread
   pthread_t rcv_thread;
   int rc;
   long status;
+
+  // itoa func
+  // char* rand_num;
+  char itoa_buffer[MAXLINE];
   
+/* logic */
   connection_init (&conn);
   conn.sockfd = sockfd;
 
   while ((p = fgets (sendline, sizeof (sendline), stdin))) {
 
-//////////////////////////////////////////////
-    generateRandomNumber(atoi(sendline)); // Generate N random numbers, malloc()
+    // generateRandomNumber(atoi(sendline));
     conn.line_len = atoi(sendline); // input N (# of random numbers)
 
     // crate receive thread ; readline()
@@ -153,7 +172,13 @@ client_work (int sockfd) {
 
     // send ; writen()
     for(int i=0; i<conn.line_len; i++) {
-      CHECK (writen (&conn, rand_nums[i], strlen(rand_nums[i])));
+      // char* buffer = (char*)malloc(sizeof(char)*MAXLINE);
+      itoa(rand() % 100, itoa_buffer, 10);
+      //strcat(itoa_buffer,"\n");
+      //strcat(itoa_buffer,'\n');
+      fprintf(stdout, "send : %s", itoa_buffer);
+      fflush(stdout);
+      CHECK (writen (&conn, itoa_buffer, strlen(itoa_buffer)));
     }
 
     // join thread
@@ -164,9 +189,7 @@ client_work (int sockfd) {
       fflush(stdout);
       exit(-1);
     }
-//////////////////////////////////////////////
-    
-    removeRandomNumber(); // free()
+
   } // end of while
 
   /* null pointer returned by fgets indicates EOF */
