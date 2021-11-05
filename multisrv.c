@@ -50,7 +50,41 @@ typedef struct Task{
 
 struct c_semaphore connection_thread_pool;
 
-Task TaskQueue[256];
+#define QUEUE_LEN 256
+int queue_front = -1;
+int queue_rear = -1;
+Task TaskQueue[QUEUE_LEN];
+
+int isEmpty(void){
+    if(queue_front==queue_rear)//front와 rear가 같으면 큐는 비어있는 상태 
+        return 1;
+    else return 0;
+}
+int isFull(void){
+    int tmp=(queue_rear+1)%QUEUE_LEN; //원형 큐에서 rear+1을 MAX로 나눈 나머지값이
+    if(tmp==queue_front)//front와 같으면 큐는 가득차 있는 상태 
+        return 1;
+    else
+        return 0;
+}
+void addq(Task newTask){
+    if(isFull())
+        printf("Queue is Full.\n");
+    else{
+         queue_rear = (queue_rear+1)%QUEUE_LEN;
+         TaskQueue[queue_rear]=newTask;
+        }
+
+}
+Task deleteq(){
+    if(isEmpty())
+        printf("Queue is Empty.\n");
+    else{
+        queue_front = (queue_front+1)%QUEUE_LEN;
+        return TaskQueue[queue_front];
+    }
+}
+
 int task_count = 0;
 pthread_mutex_t mutex_for_queue;
 pthread_mutex_t mutex_for_task;
@@ -147,8 +181,10 @@ void executeTask(Task* task){
 void submitTask(Task task){
   pthread_mutex_lock(&mutex_for_queue);
   /* TODO : push into linked list */
-  TaskQueue[task_count] = task;
-  task_count++;
+  // TaskQueue[task_count] = task;
+  // task_count++;
+  printf("submit\n");
+  addq(task);
   pthread_mutex_unlock(&mutex_for_queue);
   pthread_cond_signal(&condQueue);
 }
@@ -159,22 +195,24 @@ void* startThread(void* args){
         Task task;
         pthread_mutex_lock(&mutex_for_queue);
         // wait if there is no task in queue
-        while(!shutting_down&&task_count==0){
-          printf("plz\n");
+        while(!shutting_down&&isEmpty()){
+          printf("wait\n");
           pthread_cond_wait(&condQueue, &mutex_for_queue);
           //printf("wake up!\n");
         }
         ////////////////////////////////////////////
         /* TODO : Implementation with linked-list */
         if(!shutting_down){
-          task = TaskQueue[0];
-          for(int i=0;i<task_count -1;i++){
-            TaskQueue[i] = TaskQueue[i+1];
-          }
-          task_count--;
+          // task = TaskQueue[0];
+          // for(int i=0;i<task_count -1;i++){
+          //   TaskQueue[i] = TaskQueue[i+1];
+          // }
+          // task_count--;
+          printf("deteteq\n");
+          task = deleteq();
         ////////////////////////////////////////////
           pthread_mutex_unlock(&mutex_for_queue);
-          printf("plz22\n");
+          printf("unlock mutex for queue\n");
           executeTask(&task);
         }else{
           // exit(0);
