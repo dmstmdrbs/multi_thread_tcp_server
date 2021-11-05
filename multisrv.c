@@ -122,25 +122,21 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     printf("%s",buffer);
     *arg1 = 1;
     n = strlen(buffer); // strlen(line) == 2
-    if (shutting_down){
-      c_sem_client_disconnect(&connection_thread_pool);
-      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
-      CHECK (close (conn->sockfd));
-    }
     
-
     if (shutting_down){
+      // free(buffer);
       c_sem_client_disconnect(&connection_thread_pool);
       fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     if ( writen (conn, buffer, n) != n) {
+      // free(buffer);
       perror ("writen failed");
       c_sem_client_disconnect(&connection_thread_pool);
       fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
-
+    free(buffer);
     pthread_cond_signal(&taskCond);
 }
 
@@ -429,6 +425,7 @@ main (int argc, char **argv) {
   }
 
   pthread_cond_broadcast(&condQueue);
+  printf("end start thread\n");
   /////////////////////////////////////
   /* join threads */
   for(t=0; t<MAX_THREAD; t++){
