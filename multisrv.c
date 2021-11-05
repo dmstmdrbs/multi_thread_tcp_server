@@ -41,7 +41,8 @@ typedef struct c_semaphore{
   pthread_cond_t cv;
 } c_semaphore;
 typedef struct Task{
-    void (*taskFunction)(int* ,char*); /* function pointer */
+    void (*taskFunction)(int*, char*, int , connection_t*); /* function pointer */
+    connection_t* conn;
     int* arg1;
     char* arg2;
     int* socket_id;
@@ -100,23 +101,51 @@ char* itoa(int value, char* buffer, int base)
     if (value < 0 && base == 10) {
         buffer[i++] = '-';
     }
-    buffer[i] = '\n'; // null terminate string
+    //buffer[i] = '\n'; // null terminate string
     // reverse the string and return it
     return reverse(buffer, 0, i - 1);
 }
-void getRequest(int* arg1, char* line, int socket_id){
+void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
+    ssize_t n;
+    if (shutting_down){
+      c_sem_client_disconnect(&connection_thread_pool);
+      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+      CHECK (close (conn->sockfd));
+    }
     usleep(50000);
     int is_prime = check_prime(atoi(line),socket_id);
-    char* buffer = malloc(sizeof(char)*10);
-    strcpy(line, itoa(is_prime, buffer, 10));
-    if(is_prime) strcat(line, " is prime number\n");
-    else strcpy(line, " is not prime number\n");
+    char* buffer = malloc(sizeof(line));
+    strncpy(buffer, line, strlen(line)-1);
+  
+    if(is_prime) strcat(buffer, " is prime number\n");
+    else strcat(buffer, " is not prime number\n");
+    printf("%s",buffer);
     *arg1 = 1;
+    n = strlen(buffer); // strlen(line) == 2
+    if (shutting_down){
+      c_sem_client_disconnect(&connection_thread_pool);
+      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+      CHECK (close (conn->sockfd));
+    }
+    
+
+    if (shutting_down){
+      c_sem_client_disconnect(&connection_thread_pool);
+      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+      CHECK (close (conn->sockfd));
+    }
+    if ( writen (conn, buffer, n) != n) {
+      perror ("writen failed");
+      c_sem_client_disconnect(&connection_thread_pool);
+      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+      CHECK (close (conn->sockfd));
+    }
+
     pthread_cond_signal(&taskCond);
 }
 
 void executeTask(Task* task){
-  task->taskFunction(task->arg1,task->arg2);
+  task->taskFunction(task->arg1,task->arg2, task->socket_id, task->conn);
 }
 
 void submitTask(Task task){
@@ -129,24 +158,35 @@ void submitTask(Task task){
 }
 
 void* startThread(void* args){
-    while(1){
+    while(!shutting_down){
+        printf("thread\n");
         Task task;
         pthread_mutex_lock(&mutex_for_queue);
         // wait if there is no task in queue
-        while(task_count==0){
+        while(!shutting_down&&task_count==0){
+          printf("plz\n");
           pthread_cond_wait(&condQueue, &mutex_for_queue);
+          //printf("wake up!\n");
         }
         ////////////////////////////////////////////
         /* TODO : Implementation with linked-list */
-        task = TaskQueue[0];
-        for(int i=0;i<task_count -1;i++){
-          TaskQueue[i] = TaskQueue[i+1];
-        }
-        task_count--;
+        if(!shutting_down){
+          task = TaskQueue[0];
+          for(int i=0;i<task_count -1;i++){
+            TaskQueue[i] = TaskQueue[i+1];
+          }
+          task_count--;
         ////////////////////////////////////////////
-        pthread_mutex_unlock(&mutex_for_queue);
-        executeTask(&task);
+          pthread_mutex_unlock(&mutex_for_queue);
+          printf("plz22\n");
+          executeTask(&task);
+        }else{
+          // exit(0);
+          pthread_mutex_unlock(&mutex_for_queue);
+          break;
+        }
     }
+    printf("end of startThread\n");
 }
 
 int init_c_semaphore(c_semaphore* sem, int pshared, int value){
@@ -173,6 +213,9 @@ void c_sem_client_wait_to_connect(c_semaphore* sem){
   while(sem->count==0){
     /* unlcok mutex and waits signal in sleep state */
     //if (shutting_down) goto quit;
+    //c_sem_client_disconnect(&connection_thread_pool);
+    //fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+    //CHECK (close (conn->sockfd));
     pthread_cond_wait(&sem->cv,&sem->mutex);
   }
   sem->count--;
@@ -181,14 +224,16 @@ void c_sem_client_wait_to_connect(c_semaphore* sem){
 
 void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   /* check connection */
+  fprintf(stdout,"server_handout start\n");
   c_sem_client_wait_to_connect(sem);
 
+  fprintf(stdout,"server_handout start2\n");
   /* create threads */
   int rc;
   fprintf(stdout,"remain sem->count : %d\n",sem->count);
   fflush(stdout);
   rc = pthread_create(&threads[sem->count - 1], NULL, serve_connection, (void*)sockfd);
-  
+  fprintf(stdout,"server_handout after create thread\n");
   if (rc) {
     fprintf(stdout, "Error; return code from pthread_create() is %d\n", rc);
     fflush(stdout);
@@ -212,10 +257,10 @@ int check_prime(int n, int socket_id){
   if(n<=1) return 0;
 
   for(int i=2; i<=n/2;i++){
-    if(n % i == 0) {printf("[%d] %d is not prime number\n",socket_id,n); return 0;}
+    if(n % i == 0) return 0;
   }
 
-  printf("[%d] %d is prime number\n",socket_id,n);
+  //printf("[%d] %d is prime number\n",socket_id,n);
   return 1;
 }
 
@@ -246,7 +291,7 @@ serve_connection (void* void_sockfd) {
     int done = 0;
     Task t = {
       .taskFunction = &getRequest,
-      // .arg1 = conn,
+      .conn = &conn,
       .arg1 = &done,
       .arg2 = line,
       .socket_id = sockfd,
@@ -262,17 +307,18 @@ serve_connection (void* void_sockfd) {
       //printf("in while\n");
       if (shutting_down) goto quit;
       pthread_cond_wait(&taskCond, &mutex_for_task);
+      if (shutting_down) goto quit;
     }
     //printf("after while\n");
     
     pthread_mutex_unlock(&mutex_for_task);
-    n = strlen(line); // strlen(line) == 2
-    result = writen (&conn, line, n);
-    if (shutting_down) goto quit;
-    if (result != n) {
-      perror ("writen failed");
-      goto quit;
-    }
+    // n = strlen(line); // strlen(line) == 2
+    // result = writen (&conn, line, n);
+    // if (shutting_down) goto quit;
+    // if (result != n) {
+    //   perror ("writen failed");
+    //   goto quit;
+    // }
   }
 quit:
   c_sem_client_disconnect(&connection_thread_pool);
@@ -336,6 +382,8 @@ main (int argc, char **argv) {
      change anything in this file if you feel it is necessary for
      your design */
 
+  install_siginthandler();
+  printf("hear1\n");
   /* init new local variable */
   /* TODO : Init new data structure for threads list */
   pthread_t threads[MAX_THREAD];
@@ -344,11 +392,13 @@ main (int argc, char **argv) {
   pthread_mutex_init(&mutex_for_queue,NULL);
   pthread_mutex_init(&mutex_for_task,NULL);
   /* create thread in pool */
+  printf("hea2\n");
   for(int i=0;i<MAX_THREAD;i++){
     if(pthread_create(&threads[i], NULL, &startThread, NULL) !=0 ){
       perror("Failed to create t he thread");
     }
   }
+  printf("hea31\n");
 
   int rc;
   long t = 0;
@@ -356,20 +406,21 @@ main (int argc, char **argv) {
   /* thread pool for connection with client */
 
   init_c_semaphore(&connection_thread_pool, NULL, MAX_THREAD);
+  printf("hea31\n");
   /////////////////////////////////////
 
-  install_siginthandler();
   open_listening_socket (&listenfd);
   CHECK (listen (listenfd, 4));
   /* allow up to 4 queued connection requests before refusing */
   while (! shutting_down) {
+    printf("while31\n");
     errno = 0;
     clilen = sizeof (cliaddr); /* length of address can vary, by protocol */
     if ((connfd = accept (listenfd, (struct sockaddr *) &cliaddr, &clilen)) < 0) {
       if (errno != EINTR) ERR_QUIT ("accept"); 
       /* otherwise try again, unless we are shutting down */
     } else {
-      
+       printf("else\n");
       /* TODO : Select thread from threads */
       server_handoff (connfd, &connection_thread_pool, &threads); /* process the connection */
       /////////////////////////////////////
@@ -377,6 +428,7 @@ main (int argc, char **argv) {
     }
   }
 
+  pthread_cond_broadcast(&condQueue);
   /////////////////////////////////////
   /* join threads */
   for(t=0; t<MAX_THREAD; t++){
@@ -393,6 +445,7 @@ main (int argc, char **argv) {
   pthread_mutex_destroy(&mutex_for_task);
   pthread_cond_destroy(&condQueue);
   pthread_cond_destroy(&taskCond);
+
   CHECK (close (listenfd));
   return 0;
 }

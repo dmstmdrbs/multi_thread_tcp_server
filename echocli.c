@@ -114,16 +114,9 @@ receive_thread_work (void* void_conn) {
     }
 
     // rely that line contains "/n" 
-    if (atoi(recvline) == 1) {
-        fprintf (stdout, "response : %d is prime number\n", atoi(rand_nums[i])); 
-    } else if(atoi(recvline) == 0) {
-        fprintf (stdout, "response : %d is not prime number\n", atoi(rand_nums[i])); 
-    } else {
-        fprintf (stdout, "\t%s\n",recvline);
-    } 
-
+    fprintf (stdout, "%s",recvline);
+    
     fflush (stdout);
-
   } // end of for
 
 }
