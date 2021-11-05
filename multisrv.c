@@ -49,8 +49,12 @@ typedef struct Task{
 } Task;
 
 struct c_semaphore connection_thread_pool;
-
+pthread_t threads[MAX_THREAD];
+int rc;
+long t = 0;
+long status;
 #define QUEUE_LEN 256
+int queue_num = 0;
 int queue_front = -1;
 int queue_rear = -1;
 Task TaskQueue[QUEUE_LEN];
@@ -92,58 +96,18 @@ pthread_cond_t condQueue;
 pthread_cond_t taskCond;
 
 /* TODO : Implementation with linked-list */
-// Function to swap two numbers
-void swap(char *x, char *y) {
-    char t = *x; *x = *y; *y = t;
-}
-// Function to reverse `buffer[i…j]`
-char* reverse(char *buffer, int i, int j)
-{
-    while (i < j) {
-        swap(&buffer[i++], &buffer[j--]);
-    }
-    return buffer;
-}
-// Iterative function to implement `itoa()` function in C
-char* itoa(int value, char* buffer, int base)
-{
-    // invalid input
-    if (base < 2 || base > 32) {
-        return buffer;
-    }
-    // consider the absolute value of the number
-    int n = abs(value);
-    int i = 0;
-    while (n)
-    {
-        int r = n % base;
-        if (r >= 10) {
-            buffer[i++] = 65 + (r - 10);
-        }
-        else {
-            buffer[i++] = 48 + r;
-        }
-        n = n / base;
-    }
-    // if the number is 0
-    if (i == 0) {
-        buffer[i++] = '0';
-    }
-    // If the base is 10 and the value is negative, the resulting string
-    // is preceded with a minus sign (-)
-    // With any other base, value is always considered unsigned
-    if (value < 0 && base == 10) {
-        buffer[i++] = '-';
-    }
-    //buffer[i] = '\n'; // null terminate string
-    // reverse the string and return it
-    return reverse(buffer, 0, i - 1);
-}
 void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     ssize_t n;
     if (shutting_down){
+      printf("getRequest1\n");
       c_sem_client_disconnect(&connection_thread_pool);
-      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+      if(rc){
+          fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+          fflush(stdout);
+          exit(-1);
+      }
+      fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     usleep(50000);
@@ -160,18 +124,33 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     if (shutting_down){
       // free(buffer);
       c_sem_client_disconnect(&connection_thread_pool);
-      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+      printf("getRequest2\n");
+      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+      if(rc){
+          fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+          fflush(stdout);
+          exit(-1);
+      }
+      fprintf(stdout,"getRequest2 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     if ( writen (conn, buffer, n) != n) {
       // free(buffer);
       perror ("writen failed");
       c_sem_client_disconnect(&connection_thread_pool);
-      fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+      printf("getRequest3\n");
+      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+      if(rc){
+          fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+          fflush(stdout);
+          exit(-1);
+      }
+      fprintf(stdout,"getRequest3 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     free(buffer);
     pthread_cond_signal(&taskCond);
+    //CHECK (close (conn.sockfd));
 }
 
 void executeTask(Task* task){
@@ -198,16 +177,11 @@ void* startThread(void* args){
         while(!shutting_down&&isEmpty()){
           printf("wait\n");
           pthread_cond_wait(&condQueue, &mutex_for_queue);
-          //printf("wake up!\n");
+          
         }
         ////////////////////////////////////////////
         /* TODO : Implementation with linked-list */
         if(!shutting_down){
-          // task = TaskQueue[0];
-          // for(int i=0;i<task_count -1;i++){
-          //   TaskQueue[i] = TaskQueue[i+1];
-          // }
-          // task_count--;
           printf("deteteq\n");
           task = deleteq();
         ////////////////////////////////////////////
@@ -216,6 +190,7 @@ void* startThread(void* args){
           executeTask(&task);
         }else{
           // exit(0);
+          //pthread_cond_broadcast(&taskCond);
           pthread_mutex_unlock(&mutex_for_queue);
           break;
         }
@@ -231,29 +206,39 @@ int init_c_semaphore(c_semaphore* sem, int pshared, int value){
 }
 
 void c_sem_client_disconnect(c_semaphore* sem){
+
   pthread_mutex_lock(&sem->mutex);
   sem->count++;
   if(sem->count==1){
     /* to notice with cv for waiting semaphore */
     pthread_mutex_unlock(&sem->mutex);
-    pthread_cond_signal(&sem->cv);
+    if(shutting_down){
+      //pthread_cond_broadcast(&taskCond);
+      pthread_cond_broadcast(&sem->cv);
+    }
+    else pthread_cond_signal(&sem->cv);
   }else{
     pthread_mutex_unlock(&sem->mutex);
+    if(shutting_down){
+      //pthread_cond_broadcast(&taskCond);
+      pthread_cond_broadcast(&sem->cv);
+    }
   }
+  
 }
 
 void c_sem_client_wait_to_connect(c_semaphore* sem){
   pthread_mutex_lock(&sem->mutex);
-  while(sem->count==0){
-    /* unlcok mutex and waits signal in sleep state */
-    //if (shutting_down) goto quit;
-    //c_sem_client_disconnect(&connection_thread_pool);
-    //fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
-    //CHECK (close (conn->sockfd));
+  while(sem->count==0 && !shutting_down){
     pthread_cond_wait(&sem->cv,&sem->mutex);
+    
   }
-  sem->count--;
-  pthread_mutex_unlock(&sem->mutex);
+  if(shutting_down){
+    pthread_mutex_unlock(&sem->mutex);
+  }else{
+    sem->count--;
+    pthread_mutex_unlock(&sem->mutex);
+  }
 }
 
 void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
@@ -264,7 +249,8 @@ void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   fprintf(stdout,"server_handout start2\n");
   /* create threads */
   int rc;
-  fprintf(stdout,"remain sem->count : %d\n",sem->count);
+  printf("server_handoff\n");
+  fprintf(stdout,"server_handoff : remain sem->count : %d\n",sem->count);
   fflush(stdout);
   rc = pthread_create(&threads[sem->count - 1], NULL, serve_connection, (void*)sockfd);
   fprintf(stdout,"server_handout after create thread\n");
@@ -273,17 +259,7 @@ void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
     fflush(stdout);
     exit (-1);
   } 
-/* NOTE: You will need to completely rewrite this function, so
-   that it hands off the connection to one of your server threads,
-   moving the call to serve_connection() into the server thread
-   body.  To do that, you will need to declare a lot of new stuff,
-   including thread, mutex, and condition variable structures,
-   functions, etc.  You can insert the new bode before and after
-   this function, but you do not need to modify serve_connection()
-   or anything else between it and the note in the main program
-   body.  However, you are free to change anything in this file if
-   you feel it is necessary for your design. */
-  
+
 }
 
 int check_prime(int n, int socket_id){
@@ -305,6 +281,7 @@ serve_connection (void* void_sockfd) {
   fprintf(stdout,"serve_connection\n");
   int sockfd = (int)void_sockfd;
   ssize_t  n, result;
+
   char line[MAXLINE];
   connection_t conn;
   connection_init (&conn);
@@ -343,20 +320,19 @@ serve_connection (void* void_sockfd) {
       pthread_cond_wait(&taskCond, &mutex_for_task);
       if (shutting_down) goto quit;
     }
-    //printf("after while\n");
-    
+
     pthread_mutex_unlock(&mutex_for_task);
-    // n = strlen(line); // strlen(line) == 2
-    // result = writen (&conn, line, n);
-    // if (shutting_down) goto quit;
-    // if (result != n) {
-    //   perror ("writen failed");
-    //   goto quit;
-    // }
   }
 quit:
+  //pthread_cond_broadcast(&taskCond);
   c_sem_client_disconnect(&connection_thread_pool);
-  fprintf(stdout,"remain sem->count : %d\n",connection_thread_pool.count);
+  // rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+  // if(rc){
+  //     fprintf(stdout, "Error; quit : return code from pthread_join() is %d\n", rc);
+  //     fflush(stdout);
+  //     exit(-1);
+  // }
+  fprintf(stdout,"quit : remain sem->count : %d\n",connection_thread_pool.count);
   CHECK (close (conn.sockfd));
 }
 
@@ -420,7 +396,8 @@ main (int argc, char **argv) {
   printf("hear1\n");
   /* init new local variable */
   /* TODO : Init new data structure for threads list */
-  pthread_t threads[MAX_THREAD];
+
+  pthread_t threads_pool[MAX_THREAD];
   pthread_cond_init(&condQueue,NULL);
   pthread_cond_init(&taskCond,NULL);
   pthread_mutex_init(&mutex_for_queue,NULL);
@@ -428,11 +405,15 @@ main (int argc, char **argv) {
   /* create thread in pool */
   printf("hea2\n");
   for(int i=0;i<MAX_THREAD;i++){
-    if(pthread_create(&threads[i], NULL, &startThread, NULL) !=0 ){
+    if(pthread_create(&threads_pool[i], NULL, &startThread, NULL) !=0 ){
       perror("Failed to create t he thread");
     }
   }
-  printf("hea31\n");
+  // for(int i=0;i<MAX_THREAD;i++){
+  //   if(pthread_create(&connection_threads[i], NULL, &startThread, NULL) !=0 ){
+  //     perror("Failed to create t he thread");
+  //   }
+  // }
 
   int rc;
   long t = 0;
@@ -461,20 +442,30 @@ main (int argc, char **argv) {
       /////////////////////////////////////
     }
   }
-
+  pthread_cond_broadcast(&connection_thread_pool.cv);
+  pthread_cond_broadcast(&taskCond);
   pthread_cond_broadcast(&condQueue);
-  printf("end start thread\n");
+  printf("in main thread\n");
   /////////////////////////////////////
   /* join threads */
-  for(t=0; t<MAX_THREAD; t++){
-  	rc = pthread_join(threads[t], (void**)&status);
-
-    if (rc) {
-      fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
-      fflush(stdout);
-	    exit(-1);
+  for(t=0;t<MAX_THREAD;t++){
+    rc =pthread_join(threads_pool[t],(void**)&status);
+    if(rc){
+       fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+       fflush(stdout);
+	     exit(-1);
     }
   }
+  // for(t=0; t<4-connection_thread_pool.count; t++){
+  // 	rc = pthread_join(threads[t], (void**)&status);
+    
+  //   if (rc) {
+  //     fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+  //     fflush(stdout);
+	//     exit(-1);
+  //   }
+  //   printf("join thread tid : [%d]", t);
+  // }
   /////////////////////////////////////
   pthread_mutex_destroy(&mutex_for_queue);
   pthread_mutex_destroy(&mutex_for_task);
