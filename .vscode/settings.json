@@ -3,6 +3,7 @@
     "cmath": "c",
     "*.tcc": "c",
     "math.h": "c",
-    "echolib.h": "c"
+    "echolib.h": "c",
+    "pthread.h": "c"
   }
 }

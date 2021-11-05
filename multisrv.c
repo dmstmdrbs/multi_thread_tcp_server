@@ -25,18 +25,13 @@
 #include "echolib.h"
 #include "checks.h"
 #include "thread_deque.h"
+#include "counter_semaphore.h"
 
 #define MAX_THREAD 4
 #define QUEUE_LEN 256
 
 void* serve_connection (void* sockfd);
 int check_prime(int n, int socket_id);
-
-typedef struct c_semaphore{
-  int count;
-  pthread_mutex_t mutex;
-  pthread_cond_t cv;
-} c_semaphore;
 
 struct c_semaphore connection_thread_pool;
 pthread_t threads[MAX_THREAD];
@@ -57,7 +52,7 @@ pthread_cond_t taskCond;
 void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     ssize_t n;
     if (shutting_down){
-      printf("getRequest1\n");
+      //printf("getRequest1\n");
       c_sem_client_disconnect(&connection_thread_pool);
       rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
       if(rc){
@@ -65,7 +60,7 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
           fflush(stdout);
           exit(-1);
       }
-      fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
+      //fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     usleep(50000);
@@ -81,14 +76,14 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     
     if (shutting_down){
       c_sem_client_disconnect(&connection_thread_pool);
-      printf("getRequest2\n");
+      //printf("getRequest2\n");
       rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
       if(rc){
           fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
           fflush(stdout);
           exit(-1);
       }
-      fprintf(stdout,"getRequest2 : remain sem->count : %d\n",connection_thread_pool.count);
+      //fprintf(stdout,"getRequest2 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
 
@@ -102,7 +97,7 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
           exit(-1);
       }
 
-      fprintf(stdout,"getRequest : remain sem->count : %d\n",connection_thread_pool.count);
+      //fprintf(stdout,"getRequest : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     free(buffer);
@@ -116,7 +111,7 @@ void executeTask(Task* task){
 void submitTask(Task task){
   pthread_mutex_lock(&mutex_for_queue);
 
-  printf("in submitTask : after mutex lock\n");
+  //printf("in submitTask : after mutex lock\n");
   add_rear(&deque, task);
 
   pthread_mutex_unlock(&mutex_for_queue);
@@ -130,71 +125,31 @@ void* startThread(void* args){
         pthread_mutex_lock(&mutex_for_queue);
         // wait if there is no task in queue
         while(!shutting_down&&isEmpty(&deque)){
-          printf("in startThread : waiting\n");
+          //printf("in startThread : waiting\n");
           pthread_cond_wait(&condQueue, &mutex_for_queue);
         }
 
         if(!shutting_down){
-          printf("task poped from deque\n");
+          //printf("task poped from deque\n");
           task = pop_front(&deque);
-
           pthread_mutex_unlock(&mutex_for_queue);
-
-          printf("unlock mutex for deque\n");
+          //printf("unlock mutex for deque\n");
           executeTask(&task);
-        }else{
+        }
+        else{
           pthread_mutex_unlock(&mutex_for_queue);
           break;
         }
     }
-    printf("end of startThread\n");
-}
-
-int init_c_semaphore(c_semaphore* sem, int pshared, int value){
-  if(pshared) { errno = ENOSYS; return -1;}
-  sem->count = value;
-  pthread_mutex_init(&sem->mutex, NULL);
-  pthread_cond_init(&sem->cv,NULL);
-}
-
-void c_sem_client_disconnect(c_semaphore* sem){
-
-  pthread_mutex_lock(&sem->mutex);
-  sem->count++;
-  if(sem->count==1){
-    /* to notice with cv for waiting semaphore */
-    pthread_mutex_unlock(&sem->mutex);
-    if(shutting_down){
-      pthread_cond_broadcast(&sem->cv);
-    }
-    else pthread_cond_signal(&sem->cv);
-  }else{
-    pthread_mutex_unlock(&sem->mutex);
-    if(shutting_down){
-      pthread_cond_broadcast(&sem->cv);
-    }
-  }
-}
-
-void c_sem_client_wait_to_connect(c_semaphore* sem){
-  pthread_mutex_lock(&sem->mutex);
-  while(sem->count==0 && !shutting_down){
-    pthread_cond_wait(&sem->cv,&sem->mutex);
-  }
-  if(shutting_down){
-    pthread_mutex_unlock(&sem->mutex);
-  }else{
-    sem->count--;
-    pthread_mutex_unlock(&sem->mutex);
-  }
+    //printf("end of startThread\n");
 }
 
 void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   /* check connection */
-  fprintf(stdout,"server_handout : start\n");
+  //fprintf(stdout,"server_handout : start\n");
   c_sem_client_wait_to_connect(sem);
 
-  fprintf(stdout,"server_handout : connect client \n");
+  //fprintf(stdout,"server_handout : connect client \n");
   /* create threads */
   int rc;
   fprintf(stdout,"server_handoff : remain sem->count : %d\n",sem->count);
@@ -206,7 +161,7 @@ void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
     fflush(stdout);
     exit (-1);
   } 
-  fprintf(stdout,"server_handoff : after create thread, end\n");
+  //fprintf(stdout,"server_handoff : after create thread, end\n");
 }
 
 int check_prime(int n, int socket_id){
@@ -263,14 +218,7 @@ serve_connection (void* void_sockfd) {
     pthread_mutex_unlock(&mutex_for_task);
   }
 quit:
-  //pthread_cond_broadcast(&taskCond);
   c_sem_client_disconnect(&connection_thread_pool);
-  // rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
-  // if(rc){
-  //     fprintf(stdout, "Error; quit : return code from pthread_join() is %d\n", rc);
-  //     fflush(stdout);
-  //     exit(-1);
-  // }
   fprintf(stdout,"quit : remain sem->count : %d\n",connection_thread_pool.count);
   CHECK (close (conn.sockfd));
 }
@@ -316,35 +264,29 @@ install_siginthandler () {
   CHECK (sigaction (SIGINT, &act, NULL));
 }
 
-
-
 int
 main (int argc, char **argv) {
   int connfd, listenfd;
   socklen_t clilen;
   struct sockaddr_in cliaddr;
 
+  /* init */
   install_siginthandler();
   init_deque(&deque);
-  /* init new local variable */
-  /* TODO : Init new data structure for threads list */
 
   pthread_t threads_pool[MAX_THREAD];
   pthread_cond_init(&condQueue,NULL);
   pthread_cond_init(&taskCond,NULL);
   pthread_mutex_init(&mutex_for_queue,NULL);
   pthread_mutex_init(&mutex_for_task,NULL);
-  /* create thread in pool */
 
+  /* create thread in pool */
   for(int i=0;i<MAX_THREAD;i++){
     if(pthread_create(&threads_pool[i], NULL, &startThread, NULL) !=0 ){
       perror("Failed to create t he thread");
     }
   }
 
-  int rc;
-  long t = 0;
-  long status;
   /* thread pool for connection with client */
 
   init_c_semaphore(&connection_thread_pool, NULL, MAX_THREAD);
@@ -361,14 +303,14 @@ main (int argc, char **argv) {
       if (errno != EINTR) ERR_QUIT ("accept"); 
       /* otherwise try again, unless we are shutting down */
     } else {
-      /* TODO : Select thread from threads */
       server_handoff (connfd, &connection_thread_pool, &threads); /* process the connection */
     }
   }
+
   pthread_cond_broadcast(&connection_thread_pool.cv);
   pthread_cond_broadcast(&taskCond);
   pthread_cond_broadcast(&condQueue);
-  /////////////////////////////////////
+
   /* join threads */
   for(t=0;t<MAX_THREAD;t++){
     rc =pthread_join(threads_pool[t],(void**)&status);
