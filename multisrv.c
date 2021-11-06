@@ -27,14 +27,15 @@
 #include "thread_deque.h"
 #include "counter_semaphore.h"
 
-#define MAX_THREAD 4
+int MAX_THREAD;
+int WORKER_THREAD;
 #define QUEUE_LEN 256
 
 void* serve_connection (void* sockfd);
 int check_prime(int n, int socket_id);
 
 struct c_semaphore connection_thread_pool;
-pthread_t threads[MAX_THREAD];
+pthread_t* threads;
 int rc;
 long t = 0;
 long status;
@@ -297,6 +298,31 @@ install_siginthandler () {
 
 int
 main (int argc, char **argv) {
+  if(argc!=3){
+    printf("argc : %d\t%s\n",argc,argv[2]);
+    printf("Usage\n\t./multisrv -n <Number of Total Threads>\n");
+    return 1;
+  }
+  if(strcmp(argv[1],"-n")){
+    printf("argc : %d\t%s\n",argc,argv[2]);
+    printf("Usage\n\t./multisrv -n <Number of Total Threads>\n");
+    return 1;
+  }
+
+  int total_threads = atoi(argv[2]);
+  if(total_threads <=1){
+    printf("threads number is too small, plz enter number over 2.\n");
+    return 1;
+  }
+  if(total_threads == 2){
+    MAX_THREAD = 1;
+    WORKER_THREAD = 1;  
+  }else{
+    MAX_THREAD = total_threads/3;
+    WORKER_THREAD = total_threads - MAX_THREAD;
+  }
+  printf("number of acceptors : %d\tnumber of workers in pool : %d\n", MAX_THREAD, WORKER_THREAD);
+
   int connfd, listenfd;
   socklen_t clilen;
   struct sockaddr_in cliaddr;
@@ -305,14 +331,16 @@ main (int argc, char **argv) {
   install_siginthandler();
   init_deque(&deque);
 
-  pthread_t threads_pool[MAX_THREAD];
+  threads = malloc(sizeof(pthread_t)*MAX_THREAD);
+  pthread_t* threads_pool = malloc(sizeof(pthread_t)*WORKER_THREAD);
   pthread_cond_init(&condQueue,NULL);
   pthread_cond_init(&taskCond,NULL);
   pthread_mutex_init(&mutex_for_queue,NULL);
   pthread_mutex_init(&mutex_for_task,NULL);
 
+
   /* create thread in pool */
-  for(int i=0;i<MAX_THREAD;i++){
+  for(int i=0;i<WORKER_THREAD;i++){
     if(pthread_create(&threads_pool[i], NULL, &startThread, NULL) !=0 ){
       perror("Failed to create t he thread");
     }
@@ -343,7 +371,7 @@ main (int argc, char **argv) {
   pthread_cond_broadcast(&condQueue);
 
   /* join threads */
-  for(t=0;t<MAX_THREAD;t++){
+  for(t=0;t<WORKER_THREAD;t++){
     rc =pthread_join(threads_pool[t],(void**)&status);
     if(rc){
        fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
@@ -357,6 +385,8 @@ main (int argc, char **argv) {
   pthread_cond_destroy(&condQueue);
   pthread_cond_destroy(&taskCond);
 
+  free(threads);
+  free(threads_pool);
   CHECK (close (listenfd));
   return 0;
 }
