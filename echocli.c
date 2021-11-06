@@ -436,25 +436,31 @@ client_work (int sockfd) {
     // send ; writen()
     // char sendline[MAXLINE];
     // char itoa_buffer[MAX_RAND_NUM_LEN];
-    char *sendline = malloc(sizeof(char)*MAXLINE);
-    char *itoa_buffer = malloc(sizeof(char)*MAX_RAND_NUM_LEN);
     inline_num_cnt = 0;
     while(inline_num_cnt < N) {
 
-      for(int i=0; i<N; i++) {
+      char *sendline = malloc(sizeof(char)*MAXLINE);
+      char *itoa_buffer = malloc(sizeof(char)*MAX_RAND_NUM_LEN);
+
+      for(int i=0; i<MAXLINE-MAX_RAND_NUM_LEN-2;) {
         if(inline_num_cnt >= N) break;
         itoa(rand() % MAX_RAND_NUM, itoa_buffer, 10);
 
         strcat(sendline, itoa_buffer);
         inline_num_cnt++; 
+        i += strlen(itoa_buffer);
       }
 
       strcat(sendline, "\n\0");
 
       fprintf(stdout, "send : %s", sendline);
       fflush(stdout);
+
       CHECK (writen (&conn, sendline, strlen(sendline)));
-    }
+
+      free(sendline);
+      free(itoa_buffer);
+    }    
 
     /* for(int i=0; i<conn.line_len; i++) {
       itoa(rand() % MAX_RAND_NUM, itoa_buffer, 10);
@@ -472,8 +478,6 @@ client_work (int sockfd) {
       exit(-1);
     }
 
-    free(sendline);
-    free(itoa_buffer);
   } // end of while
 
   /* null pointer returned by fgets indicates EOF */
