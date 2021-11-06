@@ -4,6 +4,7 @@
     "*.tcc": "c",
     "math.h": "c",
     "echolib.h": "c",
-    "pthread.h": "c"
+    "pthread.h": "c",
+    "errno.h": "c"
   }
 }

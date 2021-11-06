@@ -126,7 +126,7 @@ receive_thread_work (void* void_conn) {
         fprintf (stdout, "\t%s\n",recvline);
     } 
 */
-    fprintf (stdout, "%s", recvline);
+    fprintf (stdout, "[%d번째] %s",i, recvline);
     fflush (stdout);
 
   } // end of for
@@ -176,7 +176,7 @@ client_work (int sockfd) {
     // send ; writen()
     for(int i=0; i<conn.line_len; i++) {
       // char* buffer = (char*)malloc(sizeof(char)*MAXLINE);
-      itoa(rand() % 100, itoa_buffer, 10);
+      itoa(rand() % 100000000 + 500000000, itoa_buffer, 10);
       //strcat(itoa_buffer,"\n");
       //strcat(itoa_buffer,'\n');
       fprintf(stdout, "send : %s", itoa_buffer);

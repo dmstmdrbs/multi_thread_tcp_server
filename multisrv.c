@@ -18,7 +18,7 @@
    February 2015
 
  */
-
+#include <math.h>
 #include "config.h"
 /* not needed now, but will be needed in multi-threaded version */
 #include "pthread.h"
@@ -27,14 +27,16 @@
 #include "thread_deque.h"
 #include "counter_semaphore.h"
 
-#define MAX_THREAD 4
+int MAX_THREAD;
+int WORKER_THREAD;
+
 #define QUEUE_LEN 256
 
 void* serve_connection (void* sockfd);
 int check_prime(int n, int socket_id);
 
 struct c_semaphore connection_thread_pool;
-pthread_t threads[MAX_THREAD];
+pthread_t* threads;
 int rc;
 long t = 0;
 long status;
@@ -45,6 +47,7 @@ TaskDeque deque;
 int task_count = 0;
 pthread_mutex_t mutex_for_queue;
 pthread_mutex_t mutex_for_task;
+pthread_mutex_t mutex_for_taskCond;
 pthread_cond_t condQueue;
 pthread_cond_t taskCond;
 
@@ -63,14 +66,13 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
       //fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
-    usleep(50000);
     int is_prime = check_prime(atoi(line),socket_id);
     char* buffer = malloc(sizeof(line));
     strncpy(buffer, line, strlen(line)-1);
   
     if(is_prime) strcat(buffer, " is prime number\n");
     else strcat(buffer, " is not prime number\n");
-    printf("%s",buffer);
+    //printf("%s",buffer);
     *arg1 = 1;
     n = strlen(buffer); // strlen(line) == 2
     
@@ -83,10 +85,12 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
           fflush(stdout);
           exit(-1);
       }
+      free(buffer);
       //fprintf(stdout,"getRequest2 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
 
+    usleep(30000);
     if (writen (conn, buffer, n) != n) {
       c_sem_client_disconnect(&connection_thread_pool);
 
@@ -96,11 +100,12 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
           fflush(stdout);
           exit(-1);
       }
-
+      //free(buffer);
       //fprintf(stdout,"getRequest : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     free(buffer);
+    
     pthread_cond_signal(&taskCond);
 }
 
@@ -120,20 +125,24 @@ void submitTask(Task task){
 }
 
 void* startThread(void* args){
+    int tid = (int)args;
     while(!shutting_down){
-        Task task;
-        pthread_mutex_lock(&mutex_for_queue);
         // wait if there is no task in queue
+        pthread_mutex_lock(&mutex_for_queue);
+        Task task;
         while(!shutting_down&&isEmpty(&deque)){
           //printf("in startThread : waiting\n");
+          
           pthread_cond_wait(&condQueue, &mutex_for_queue);
         }
 
         if(!shutting_down){
+          
           //printf("task poped from deque\n");
           task = pop_front(&deque);
           pthread_mutex_unlock(&mutex_for_queue);
           //printf("unlock mutex for deque\n");
+          printf("[tid : %d]:exec\n",tid);
           executeTask(&task);
         }
         else{
@@ -141,7 +150,7 @@ void* startThread(void* args){
           break;
         }
     }
-    //printf("end of startThread\n");
+    printf("end of startThread\n");
 }
 
 void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
@@ -209,7 +218,7 @@ serve_connection (void* void_sockfd) {
 
     while(done==0){
       if (shutting_down) goto quit;
-      pthread_cond_wait(&taskCond, &mutex_for_task);
+      pthread_cond_wait(&taskCond, &mutex_for_taskCond);
       if (shutting_down) {
 
         goto quit;
@@ -266,6 +275,31 @@ install_siginthandler () {
 
 int
 main (int argc, char **argv) {
+    if(argc!=3){
+    printf("argc : %d\t%s\n",argc,argv[2]);
+    printf("Usage\n\t./multisrv -n <Number of Total Threads>\n");
+    return 1;
+  }
+  if(strcmp(argv[1],"-n")){
+    printf("argc : %d\t%s\n",argc,argv[2]);
+    printf("Usage\n\t./multisrv -n <Number of Total Threads>\n");
+    return 1;
+  }
+
+  int total_threads = atoi(argv[2]);
+  if(total_threads <=1){
+    printf("threads number is too small, plz enter number over 2.\n");
+    return 1;
+  }
+  if(total_threads == 2){
+    MAX_THREAD = 1;
+    WORKER_THREAD = 1;  
+  }else{
+    MAX_THREAD = ceil(total_threads/3.0);
+    WORKER_THREAD = total_threads - MAX_THREAD;
+  }
+  printf("number of acceptors : %d\tnumber of workers in pool : %d\n", MAX_THREAD, WORKER_THREAD);
+
   int connfd, listenfd;
   socklen_t clilen;
   struct sockaddr_in cliaddr;
@@ -274,15 +308,17 @@ main (int argc, char **argv) {
   install_siginthandler();
   init_deque(&deque);
 
-  pthread_t threads_pool[MAX_THREAD];
+  threads = malloc(sizeof(pthread_t)*MAX_THREAD);
+  pthread_t* threads_pool = malloc(sizeof(pthread_t)*WORKER_THREAD);
+
   pthread_cond_init(&condQueue,NULL);
   pthread_cond_init(&taskCond,NULL);
   pthread_mutex_init(&mutex_for_queue,NULL);
   pthread_mutex_init(&mutex_for_task,NULL);
-
+  pthread_mutex_init(&mutex_for_taskCond,NULL);
   /* create thread in pool */
-  for(int i=0;i<MAX_THREAD;i++){
-    if(pthread_create(&threads_pool[i], NULL, &startThread, NULL) !=0 ){
+  for(int i=0;i<WORKER_THREAD;i++){
+    if(pthread_create(&threads_pool[i], NULL, &startThread, (void*)i) !=0 ){
       perror("Failed to create t he thread");
     }
   }
@@ -303,7 +339,7 @@ main (int argc, char **argv) {
       if (errno != EINTR) ERR_QUIT ("accept"); 
       /* otherwise try again, unless we are shutting down */
     } else {
-      server_handoff (connfd, &connection_thread_pool, &threads); /* process the connection */
+      server_handoff (connfd, &connection_thread_pool, threads); /* process the connection */
     }
   }
 
@@ -323,6 +359,7 @@ main (int argc, char **argv) {
 
   pthread_mutex_destroy(&mutex_for_queue);
   pthread_mutex_destroy(&mutex_for_task);
+  pthread_mutex_destroy(&mutex_for_taskCond);
   pthread_cond_destroy(&condQueue);
   pthread_cond_destroy(&taskCond);
 
