@@ -18,7 +18,7 @@
    February 2015
 
  */
-
+#include<math.h>
 #include "config.h"
 /* not needed now, but will be needed in multi-threaded version */
 #include "pthread.h"
@@ -318,7 +318,7 @@ main (int argc, char **argv) {
     MAX_THREAD = 1;
     WORKER_THREAD = 1;  
   }else{
-    MAX_THREAD = total_threads/3;
+    MAX_THREAD = ceil(total_threads/3.0);
     WORKER_THREAD = total_threads - MAX_THREAD;
   }
   printf("number of acceptors : %d\tnumber of workers in pool : %d\n", MAX_THREAD, WORKER_THREAD);
