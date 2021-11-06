@@ -52,7 +52,6 @@ pthread_cond_t taskCond;
 void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     ssize_t n;
     if (shutting_down){
-      //printf("getRequest1\n");
       c_sem_client_disconnect(&connection_thread_pool);
       rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
       if(rc){
@@ -60,47 +59,77 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
           fflush(stdout);
           exit(-1);
       }
-      //fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
     usleep(50000);
-    int is_prime = check_prime(atoi(line),socket_id);
-    char* buffer = malloc(sizeof(line));
-    strncpy(buffer, line, strlen(line)-1);
+
+    int i=0;
+    int len=1;
+    char* array[MAXLINE];
+    char* p = strtok(line," ");
+    while (p != '\0')
+    {
+        array[i++] = p;
+        p = strtok (NULL, " ");
+    }
+    /*
+    while (1)
+    {
+      array[i++] = p;
+      p = strtok (NULL, " ");
+      if(p != '\0'){
+        char* tmp = malloc(sizeof(char)*MAXLINE);
+        tmp = strtok(array[i-1],'\n');
+        printf("in if : %s\n",tmp);
+        strcpy(array[i-1],tmp);
+        free(tmp);
+        break;
+      }
+    }
+    */
+    len = i;
   
-    if(is_prime) strcat(buffer, " is prime number\n");
-    else strcat(buffer, " is not prime number\n");
-    printf("%s",buffer);
-    *arg1 = 1;
-    n = strlen(buffer); // strlen(line) == 2
+    for(i=0;i<len-1;i++){
+      //printf("%s\n", array[i]);
+      int is_prime = check_prime(atoi(array[i]),socket_id);
+      char* buffer = malloc(sizeof(array[i]));
+      strncpy(buffer, array[i], strlen(array[i]));
     
-    if (shutting_down){
-      c_sem_client_disconnect(&connection_thread_pool);
-      //printf("getRequest2\n");
-      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
-      if(rc){
-          fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
-          fflush(stdout);
-          exit(-1);
-      }
-      //fprintf(stdout,"getRequest2 : remain sem->count : %d\n",connection_thread_pool.count);
-      CHECK (close (conn->sockfd));
-    }
+      if(is_prime) strcat(buffer, " is prime number\n");
+      else strcat(buffer, " is not prime number\n");
+      //printf("%s",buffer);
 
-    if (writen (conn, buffer, n) != n) {
-      c_sem_client_disconnect(&connection_thread_pool);
-
-      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
-      if(rc){
-          fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
-          fflush(stdout);
-          exit(-1);
+      *arg1 = 1;
+      n = strlen(buffer); // strlen(line) == 2
+      
+      if (shutting_down){
+        c_sem_client_disconnect(&connection_thread_pool);
+        //printf("getRequest2\n");
+        rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+        if(rc){
+            fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+            fflush(stdout);
+            exit(-1);
+        }
+        //fprintf(stdout,"getRequest2 : remain sem->count : %d\n",connection_thread_pool.count);
+        CHECK (close (conn->sockfd));
       }
 
-      //fprintf(stdout,"getRequest : remain sem->count : %d\n",connection_thread_pool.count);
-      CHECK (close (conn->sockfd));
+      if (writen (conn, buffer, n) != n) {
+        c_sem_client_disconnect(&connection_thread_pool);
+
+        rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+        if(rc){
+            fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+            fflush(stdout);
+            exit(-1);
+        }
+
+        //fprintf(stdout,"getRequest : remain sem->count : %d\n",connection_thread_pool.count);
+        CHECK (close (conn->sockfd));
+      }
+      free(buffer);
     }
-    free(buffer);
     pthread_cond_signal(&taskCond);
 }
 
@@ -186,8 +215,10 @@ serve_connection (void* void_sockfd) {
   conn.sockfd = sockfd;
   while (! shutting_down) {
     /* submit Task into TaskQueue */
-
     if ((n = readline (&conn, line, MAXLINE)) == 0) goto quit;
+    printf("%s\n",line);
+
+    
     /* connection closed by other end */
     if (shutting_down) goto quit;
     if (n < 0) {
