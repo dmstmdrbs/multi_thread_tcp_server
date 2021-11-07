@@ -26,7 +26,7 @@ make >> ${LOG} 2>&1
 if [ -d testdir ]; then rm -rf testdir; fi
 mkdir testdir
 cd testdir
-pkill -KILL srv
+#pkill -KILL srv
 echo "==========testing=================================" >>${LOG} 2>&1
 if [ $# -eq 1 ]; then
   ../timer ../multisrv $1 >${TMPFILE1} 2>${TMPFILE2}&

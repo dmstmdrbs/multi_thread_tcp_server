@@ -30,12 +30,12 @@
 int MAX_THREAD;
 int WORKER_THREAD;
 
-#define QUEUE_LEN 256
+#define QUEUE_LEN 1024
 
 void* serve_connection (void* sockfd);
 int check_prime(int n, int socket_id);
 
-struct c_semaphore connection_thread_pool;
+c_semaphore connection_thread_pool;
 pthread_t* threads;
 int rc;
 long t = 0;
@@ -45,17 +45,20 @@ Task TaskQueue[QUEUE_LEN];
 TaskDeque deque;
 
 int task_count = 0;
-pthread_mutex_t mutex_for_queue;
+pthread_mutex_t mutex_for_queue_front;
+pthread_mutex_t mutex_for_queue_rear;
 pthread_mutex_t mutex_for_task;
 pthread_mutex_t mutex_for_taskCond;
+pthread_mutex_t mutex_for_condQueue;
 pthread_cond_t condQueue;
 pthread_cond_t taskCond;
 
 /* TODO : Implementation with linked-list */
 void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
+
     ssize_t n;
     if (shutting_down){
-      //printf("getRequest1\n");
+      for(int i=0;i<WORKER_THREAD;i++) pthread_cond_signal(&condQueue);
       c_sem_client_disconnect(&connection_thread_pool);
       rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
       if(rc){
@@ -66,6 +69,8 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
       //fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
       CHECK (close (conn->sockfd));
     }
+    
+    //printf("-----------job start-----------\n");
     int is_prime = check_prime(atoi(line),socket_id);
     char* buffer = malloc(sizeof(line));
     strncpy(buffer, line, strlen(line)-1);
@@ -78,6 +83,7 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     
     if (shutting_down){
       c_sem_client_disconnect(&connection_thread_pool);
+      for(int i=0;i<WORKER_THREAD;i++) pthread_cond_signal(&condQueue);
       //printf("getRequest2\n");
       rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
       if(rc){
@@ -90,7 +96,10 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
       CHECK (close (conn->sockfd));
     }
 
-    usleep(30000);
+    // if(is_prime%2==0)
+    //   usleep(1000000);
+    // else usleep(1000);
+    //printf("-----------job end-----------\n");
     if (writen (conn, buffer, n) != n) {
       c_sem_client_disconnect(&connection_thread_pool);
 
@@ -106,20 +115,61 @@ void getRequest(int* arg1, char* line, int socket_id, connection_t* conn){
     }
     free(buffer);
     
-    pthread_cond_signal(&taskCond);
+    // pthread_cond_signal(&taskCond);
 }
 
 void executeTask(Task* task){
-  task->taskFunction(task->arg1,task->arg2, task->socket_id, task->conn);
+  task->taskFunction(&task->arg1,task->arg2, task->socket_id, task->conn);
 }
 
-void submitTask(Task task){
-  pthread_mutex_lock(&mutex_for_queue);
+void submitTask(Task *task){
+  printf("submitTask\n");
+  if (shutting_down){
+      c_sem_client_disconnect(&connection_thread_pool);
+      for(int i=0;i<WORKER_THREAD;i++) pthread_cond_signal(&condQueue);
+      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+      if(rc){
+          fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+          fflush(stdout);
+          exit(-1);
+      }
+      //fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
+      //CHECK (close (conn->sockfd));
+    }
+  pthread_mutex_lock(&mutex_for_queue_rear);
 
+//  printf("line : %s\n", task->arg2);
+//  printf("socketid : %d\n", task->socket_id);
+  
+  Task t = {
+        .arg1=task->arg1,
+        .conn=task->conn,
+        .socket_id=task->socket_id,
+        .taskFunction=task->taskFunction,
+  };
+
+  strcpy(t.arg2, task->arg2); 
+
+  if (shutting_down){
+      //printf("getRequest1\n");
+      free(task);
+      for(int i=0;i<WORKER_THREAD;i++) pthread_cond_signal(&condQueue);
+      c_sem_client_disconnect(&connection_thread_pool);
+      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+      if(rc){
+          fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+          fflush(stdout);
+          exit(-1);
+      }
+      //fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
+      //CHECK (close (conn->sockfd));
+    }
+  printf("line : %s", t.arg2);
+  printf("socketid : %d\n", t.socket_id);
   //printf("in submitTask : after mutex lock\n");
-  add_rear(&deque, task);
-
-  pthread_mutex_unlock(&mutex_for_queue);
+  add_rear(&deque, t);
+  free(task);
+  pthread_mutex_unlock(&mutex_for_queue_rear);
 
   pthread_cond_signal(&condQueue);
 }
@@ -128,25 +178,41 @@ void* startThread(void* args){
     int tid = (int)args;
     while(!shutting_down){
         // wait if there is no task in queue
-        pthread_mutex_lock(&mutex_for_queue);
-        Task task;
-        while(!shutting_down&&isEmpty(&deque)){
-          //printf("in startThread : waiting\n");
-          
-          pthread_cond_wait(&condQueue, &mutex_for_queue);
+        if (shutting_down){
+          //printf("getRequest1\n");
+          c_sem_client_disconnect(&connection_thread_pool);
+          rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+          if(rc){
+              fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+              fflush(stdout);
+              exit(-1);
+          }
+          //fprintf(stdout,"getRequest1 : remain sem->count : %d\n",connection_thread_pool.count);
+          //CHECK (close (conn->sockfd));
         }
+        Task task;
+
+        pthread_mutex_lock(&mutex_for_queue_front);
+        while(isEmpty(&deque)){
+          //printf("in startThread : waiting\n");
+          pthread_mutex_lock(&mutex_for_condQueue);
+          pthread_cond_wait(&condQueue, &mutex_for_condQueue);
+          pthread_mutex_unlock(&mutex_for_condQueue);
+        }
+      
 
         if(!shutting_down){
           
           //printf("task poped from deque\n");
           task = pop_front(&deque);
-          pthread_mutex_unlock(&mutex_for_queue);
+          pthread_mutex_unlock(&mutex_for_queue_front);
           //printf("unlock mutex for deque\n");
-          printf("[tid : %d]:exec\n",tid);
+          // printf("[tid : %d]:exec\n",tid);
           executeTask(&task);
+          //printf("[tid : %d]:end\n",tid);
         }
         else{
-          pthread_mutex_unlock(&mutex_for_queue);
+          pthread_mutex_unlock(&mutex_for_queue_front);
           break;
         }
     }
@@ -155,7 +221,17 @@ void* startThread(void* args){
 
 void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   /* check connection */
-  //fprintf(stdout,"server_handout : start\n");
+  fprintf(stdout,"server_handout : start\n");
+  if(shutting_down){
+     //printf("getRequest1\n");
+          c_sem_client_disconnect(&connection_thread_pool);
+          rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+          if(rc){
+              fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+              fflush(stdout);
+              exit(-1);
+          }
+  }
   c_sem_client_wait_to_connect(sem);
 
   //fprintf(stdout,"server_handout : connect client \n");
@@ -170,10 +246,13 @@ void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
     fflush(stdout);
     exit (-1);
   } 
-  //fprintf(stdout,"server_handoff : after create thread, end\n");
+  fprintf(stdout,"server_handoff : after create thread, end\n");
 }
 
 int check_prime(int n, int socket_id){
+    for(int i=0;i<50000000;i++){
+      if(shutting_down) break;
+    };
   if(n<=1) return 0;
   for(int i=2; i<=n/2;i++){
     if(n % i == 0) return 0;
@@ -195,8 +274,8 @@ serve_connection (void* void_sockfd) {
   conn.sockfd = sockfd;
   while (! shutting_down) {
     /* submit Task into TaskQueue */
-
-    if ((n = readline (&conn, line, MAXLINE)) == 0) goto quit;
+    printf("readline\n");
+    if (shutting_down ||((n = readline (&conn, line, MAXLINE)) == 0)) goto quit;
     /* connection closed by other end */
     if (shutting_down) goto quit;
     if (n < 0) {
@@ -204,27 +283,15 @@ serve_connection (void* void_sockfd) {
       goto quit;
     }
     
-    int done = 0;
-    Task t = {
-      .taskFunction = &getRequest,
-      .conn = &conn,
-      .arg1 = &done,
-      .arg2 = line,
-      .socket_id = sockfd,
-    };
-    submitTask(t);
-    
-    pthread_mutex_lock(&mutex_for_task);
+    struct Task *task = malloc(sizeof(Task));
+    task->taskFunction = &getRequest;
+    task->conn = &conn;
+    task->arg1 = 0;
+    strcpy(task->arg2, line);
+    task->socket_id = sockfd;
 
-    while(done==0){
-      if (shutting_down) goto quit;
-      pthread_cond_wait(&taskCond, &mutex_for_taskCond);
-      if (shutting_down) {
-
-        goto quit;
-      }
-    }
-    pthread_mutex_unlock(&mutex_for_task);
+    submitTask(task);
+    if (shutting_down) goto quit;
   }
 quit:
   c_sem_client_disconnect(&connection_thread_pool);
@@ -313,9 +380,11 @@ main (int argc, char **argv) {
 
   pthread_cond_init(&condQueue,NULL);
   pthread_cond_init(&taskCond,NULL);
-  pthread_mutex_init(&mutex_for_queue,NULL);
+  pthread_mutex_init(&mutex_for_queue_rear,NULL);
+  pthread_mutex_init(&mutex_for_queue_front,NULL);
   pthread_mutex_init(&mutex_for_task,NULL);
   pthread_mutex_init(&mutex_for_taskCond,NULL);
+  pthread_mutex_init(&mutex_for_condQueue,NULL);
   /* create thread in pool */
   for(int i=0;i<WORKER_THREAD;i++){
     if(pthread_create(&threads_pool[i], NULL, &startThread, (void*)i) !=0 ){
@@ -330,15 +399,25 @@ main (int argc, char **argv) {
   /////////////////////////////////////
 
   open_listening_socket (&listenfd);
+  if(shutting_down) goto here;
+
   CHECK (listen (listenfd, 4));
+  if(shutting_down) goto here;
   /* allow up to 4 queued connection requests before refusing */
   while (! shutting_down) {
     errno = 0;
     clilen = sizeof (cliaddr); /* length of address can vary, by protocol */
+    if(shutting_down){
+        break;
+    }
     if ((connfd = accept (listenfd, (struct sockaddr *) &cliaddr, &clilen)) < 0) {
+      if(shutting_down){
+        goto here;
+      }
       if (errno != EINTR) ERR_QUIT ("accept"); 
       /* otherwise try again, unless we are shutting down */
     } else {
+      if(shutting_down) goto here;
       server_handoff (connfd, &connection_thread_pool, threads); /* process the connection */
     }
   }
@@ -353,16 +432,22 @@ main (int argc, char **argv) {
     if(rc){
        fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
        fflush(stdout);
-	     exit(-1);
+        exit(-1);
     }
   }
 
-  pthread_mutex_destroy(&mutex_for_queue);
+  pthread_mutex_destroy(&mutex_for_queue_rear);
+  pthread_mutex_destroy(&mutex_for_queue_front);
   pthread_mutex_destroy(&mutex_for_task);
   pthread_mutex_destroy(&mutex_for_taskCond);
+  pthread_mutex_destroy(&mutex_for_condQueue);
+  
   pthread_cond_destroy(&condQueue);
   pthread_cond_destroy(&taskCond);
 
+here:
+  free(threads);
+  free(threads_pool);
   CHECK (close (listenfd));
   return 0;
 }

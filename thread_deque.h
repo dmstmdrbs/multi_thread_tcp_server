@@ -1,4 +1,4 @@
-#define DEQUE_LEN 256
+#define DEQUE_LEN 1024
 #define TRUE 1
 #define FALSE 0
 
@@ -10,7 +10,7 @@ typedef struct Task{
     void (*taskFunction)(int*, char*, int , connection_t*); /* function pointer */
     connection_t* conn;
     int* arg1;
-    char* arg2;
+    char arg2[MAXLINE];
     int* socket_id;
 } Task;
 
@@ -49,7 +49,7 @@ int isFull(TaskDeque *q){
 void add_rear(TaskDeque *q, Task task){
   if(isFull(q)){printf("Deque is Full\n"); return;}
   else{
-    q->rear = (q->rear+1)%DEQUE_LEN;
+    q->rear = (q->rear+1) % DEQUE_LEN;
     q->tasks[q->rear]=task;
   }
 }

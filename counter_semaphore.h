@@ -17,6 +17,7 @@ int init_c_semaphore(c_semaphore* sem, int pshared, int value){
 }
 
 void c_sem_client_disconnect(c_semaphore* sem){
+  pthread_mutex_unlock(&sem->mutex);
   pthread_mutex_lock(&sem->mutex);
   sem->count++;
   if(sem->count==1){

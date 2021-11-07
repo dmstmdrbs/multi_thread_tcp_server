@@ -20,6 +20,8 @@
 #include "pthread.h"
 #include <sys/time.h>
 #include <math.h>
+#include <immintrin.h>
+#include <x86intrin.h>
 
 char** rand_nums;
 
@@ -106,10 +108,10 @@ void removeRandomNumber (int N) {
 
 void*
 receive_thread_work (void* void_conn) {
-
+  unsigned long start, end;
   char recvline[MAXLINE];
   connection_t *con = (connection_t*)void_conn;
-
+  start = __rdtsc();
   for (int i=0; i<con->line_len; i++) { // same as for(i=0; i<N; i++
 
     // Each response from server
@@ -130,7 +132,8 @@ receive_thread_work (void* void_conn) {
     fflush (stdout);
 
   } // end of for
-
+  end = __rdtsc();
+  printf("time : %ld\n",end-start);
 }
 
 /* the main service loop of the client; assumes sockfd is a
@@ -176,10 +179,11 @@ client_work (int sockfd) {
     // send ; writen()
     for(int i=0; i<conn.line_len; i++) {
       // char* buffer = (char*)malloc(sizeof(char)*MAXLINE);
-      itoa(rand() % 100000000 + 500000000, itoa_buffer, 10);
+      if(i%2==0) itoa(rand() % 1000000000 + 1000000000, itoa_buffer, 10);
+      if(i%2!=0) itoa(1, itoa_buffer, 10);
       //strcat(itoa_buffer,"\n");
       //strcat(itoa_buffer,'\n');
-      fprintf(stdout, "send : %s", itoa_buffer);
+      fprintf(stdout, "send[%d번째] : %s",i, itoa_buffer);
       fflush(stdout);
       CHECK (writen (&conn, itoa_buffer, strlen(itoa_buffer)));
     }
