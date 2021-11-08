@@ -4,7 +4,7 @@ LIBS= -pthread
 DEPS=config.h Makefile echolib.h checks.h
 
 # the program or programs we want to build
-EXECUTABLES=echocli echosrv multisrv driver timer usleep
+EXECUTABLES=echocli echosrv multisrv driver timer
 
 # If you just type "make", it will default to "make all".
 default: $(EXECUTABLES)
@@ -28,8 +28,6 @@ driver: driver.c echolib.o
 timer: timer.c
 	$(CC) $(CCOPTS) -o timer timer.c $(LIBS)
 
-usleep: usleep.c
-	$(CC) $(CCOPTS) -o usleep usleep.c
 
 #
 # "make clean" removes all the files created by "make" and editors

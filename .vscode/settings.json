@@ -5,6 +5,7 @@
     "math.h": "c",
     "echolib.h": "c",
     "pthread.h": "c",
-    "errno.h": "c"
+    "errno.h": "c",
+    "config.h": "c"
   }
 }

@@ -23,88 +23,58 @@
 #include <immintrin.h>
 #include <x86intrin.h>
 
-char** rand_nums;
-
 // Function to swap two numbers
 void swap(char *x, char *y) {
-    char t = *x; *x = *y; *y = t;
+  char t = *x; *x = *y; *y = t;
 }
- 
 // Function to reverse `buffer[i…j]`
 char* reverse(char *buffer, int i, int j)
 {
-    while (i < j) {
-        swap(&buffer[i++], &buffer[j--]);
-    }
-    
-    return buffer;
+  while (i < j) {
+    swap(&buffer[i++], &buffer[j--]);
+  }
+  return buffer;
 }
  
 // Iterative function to implement `itoa()` function in C
 char* itoa(int value, char* buffer, int base)
 {
-    // invalid input
-    if (base < 2 || base > 32) {
-        return buffer;
-    }
- 
-    // consider the absolute value of the number
-    int n = abs(value);
- 
-    int i = 0;
-    while (n)
-    {
-        int r = n % base;
- 
-        if (r >= 10) {
-            buffer[i++] = 65 + (r - 10);
-        }
-        else {
-            buffer[i++] = 48 + r;
-        }
- 
-        n = n / base;
-    }
- 
-    // if the number is 0
-    if (i == 0) {
-        buffer[i++] = '0';
-    }
- 
-    // If the base is 10 and the value is negative, the resulting string
-    // is preceded with a minus sign (-)
-    // With any other base, value is always considered unsigned
-    if (value < 0 && base == 10) {
-        buffer[i++] = '-';
-    }
-    buffer[i++] = '\n';
-    buffer[i] = '\0'; // null terminate string
- 
-    // reverse the string and return it
-    return reverse(buffer, 0, i - 2);
-}
-
-/*
-void generateRandomNumber (int N) {
-
-  rand_nums=(char**)malloc(sizeof(char*)*N);
-
-  for(int i=0; i<N; i++)
-  {
-    rand_nums[i] = (char*)malloc(sizeof(char)*MAXLINE);
-    char* buffer = (char*)malloc(sizeof(char)*MAXLINE);
-    strcpy(rand_nums[i], itoa(rand() % 100000, buffer, 10)); 
+  // invalid input
+  if (base < 2 || base > 32) {
+    return buffer;
   }
- 
+  // consider the absolute value of the number
+  int n = abs(value);
+
+  int i = 0;
+  while (n)
+  {
+    int r = n % base;
+    if (r >= 10) {
+      buffer[i++] = 65 + (r - 10);
+    }
+    else {
+      buffer[i++] = 48 + r;
+    }
+    n = n / base;
+  }
+
+  // if the number is 0
+  if (i == 0) {
+    buffer[i++] = '0';
+  }
+  // If the base is 10 and the value is negative, the resulting string
+  // is preceded with a minus sign (-)
+  // With any other base, value is always considered unsigned
+  if (value < 0 && base == 10) {
+    buffer[i++] = '-';
+  }
+  buffer[i++] = '\n';
+  buffer[i] = '\0'; // null terminate string
+
+  // reverse the string and return it
+  return reverse(buffer, 0, i - 2);
 }
-
-void removeRandomNumber (int N) {
-
-  for(int i=0; i<N; i++) free(rand_nums[i]);
-  free(rand_nums);
-
-}
-*/
 
 void*
 receive_thread_work (void* void_conn) {
@@ -112,32 +82,20 @@ receive_thread_work (void* void_conn) {
   char recvline[MAXLINE];
   connection_t *con = (connection_t*)void_conn;
   start = __rdtsc();
-  for (int i=0; i<con->line_len; i++) { // same as for(i=0; i<N; i++
-
+  for (int i=0; i<con->line_len; i++) { // same as for(i=0; i<N; i++)
     // Each response from server
     if (readline (con, recvline, sizeof(recvline)) <= 0){
-        ERR_QUIT ("str_cli: server terminated connection prematurely");
+      ERR_QUIT ("str_cli: server terminated connection prematurely");
     }
-/*
-    // rely that line contains "/n" 
-    if (atoi(recvline) == 1) {
-        fprintf (stdout, "prime number\n", ); 
-    } else if(atoi(recvline) == 0) {
-        fprintf (stdout, "NOT prime number\n"); 
-    } else {
-        fprintf (stdout, "\t%s\n",recvline);
-    } 
-*/
     fprintf (stdout, "[%d번째] %s",i, recvline);
     fflush (stdout);
-
   } // end of for
   end = __rdtsc();
   printf("time : %ld\n",end-start);
 }
 
 /* the main service loop of the client; assumes sockfd is a
-   connected socket */
+  connected socket */
 void
 client_work (int sockfd) {
 /* variables */
@@ -151,8 +109,6 @@ client_work (int sockfd) {
   int rc;
   long status;
 
-  // itoa func
-  // char* rand_num;
   char itoa_buffer[MAXLINE];
   
 /* logic */
@@ -164,7 +120,6 @@ client_work (int sockfd) {
       printf("server shutting down\n");
       break;
     }
-    // generateRandomNumber(atoi(sendline));
     conn.line_len = atoi(sendline); // input N (# of random numbers)
 
     // crate receive thread ; readline()
@@ -178,27 +133,21 @@ client_work (int sockfd) {
 
     // send ; writen()
     for(int i=0; i<conn.line_len; i++) {
-      // char* buffer = (char*)malloc(sizeof(char)*MAXLINE);
       if(i%2==0) itoa(rand() % 1000000000 + 1000000000, itoa_buffer, 10);
-      if(i%2!=0) itoa(1, itoa_buffer, 10);
-      //strcat(itoa_buffer,"\n");
-      //strcat(itoa_buffer,'\n');
-      fprintf(stdout, "send[%d번째] : %s",i, itoa_buffer);
-      fflush(stdout);
+      else itoa(1,itoa_buffer,10);
+      printf("[%d번째] send :%s",i, itoa_buffer);
+      usleep(15000);
       CHECK (writen (&conn, itoa_buffer, strlen(itoa_buffer)));
     }
 
     // join thread
     rc = pthread_join(rcv_thread, (void**)&status);
-
     if (rc) {
       fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
       fflush(stdout);
       exit(-1);
     }
-
   } // end of while
-
   /* null pointer returned by fgets indicates EOF */
 }
 
@@ -243,19 +192,19 @@ set_server_address (struct sockaddr_in *servaddr, int argc, char **argv) {
 
 int
 main (int argc, char **argv) {
-   int sockfd;
-   struct sockaddr_in servaddr;
-   struct timeval start, stop;
-   /* time how long we have to wait for a connection */
-   CHECK (gettimeofday (&start, NULL));
-   set_server_address (&servaddr, argc, argv);
-   if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+  int sockfd;
+  struct sockaddr_in servaddr;
+  struct timeval start, stop;
+  /* time how long we have to wait for a connection */
+  CHECK (gettimeofday (&start, NULL));
+  set_server_address (&servaddr, argc, argv);
+  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
     ERR_QUIT ("usage: socket call failed");
-   }
-   CHECK (connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr)));
-   CHECK (gettimeofday (&stop, NULL));
-   fprintf (stderr, "connection wait time = %ld microseconds\n",
-            (stop.tv_sec - start.tv_sec)*1000000 + (stop.tv_usec - start.tv_usec));
-   client_work (sockfd);
-   exit (0);
+  }
+  CHECK (connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr)));
+  CHECK (gettimeofday (&stop, NULL));
+  fprintf (stderr, "connection wait time = %ld microseconds\n",
+          (stop.tv_sec - start.tv_sec)*1000000 + (stop.tv_usec - start.tv_usec));
+  client_work (sockfd);
+  exit (0);
 }
