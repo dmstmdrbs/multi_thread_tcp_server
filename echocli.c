@@ -135,8 +135,10 @@ client_work (int sockfd) {
     for(int i=0; i<conn.line_len; i++) {
       if(i%2==0) itoa(rand() % 1000000000 + 1000000000, itoa_buffer, 10);
       else itoa(1,itoa_buffer,10);
-      printf("[%d번째] send :%s",i, itoa_buffer);
-      usleep(15000);
+      printf("[SEND %d번째] :%s",i, itoa_buffer);
+      for(int i=0;i<50000000;i++){
+        if(shutting_down) break;
+      };
       CHECK (writen (&conn, itoa_buffer, strlen(itoa_buffer)));
     }
 

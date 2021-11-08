@@ -146,15 +146,7 @@ void* startThread(void* args){
   int tid = (int)args;
   while(!shutting_down){
     /* join accpet threads */
-    if (shutting_down){
-      c_sem_client_disconnect(&connection_thread_pool);
-      rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
-      if(rc){
-        fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
-        fflush(stdout);
-        exit(-1);
-      }
-    }
+    if (shutting_down) goto quit;
 
     Task task;
 
@@ -177,20 +169,20 @@ void* startThread(void* args){
       break;
     }
   }
+quit:
+  c_sem_client_disconnect(&connection_thread_pool);
+  rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
+  if(rc){
+    fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
+    fflush(stdout);
+    exit(-1);
+  }
 }
 
 /* client connection handling function */
 void server_handoff (int sockfd, c_semaphore* sem, pthread_t* threads) {
   /* check connection */
-  if(shutting_down){
-    c_sem_client_disconnect(&connection_thread_pool);
-    rc =pthread_join(threads[connection_thread_pool.count-1],(void**)&status);
-    if(rc){
-      fprintf(stdout, "Error; return code from pthread_join() is %d\n", rc);
-      fflush(stdout);
-      exit(-1);
-    }
-  }
+
   /* wait to connect client */
   c_sem_client_wait_to_connect(sem);
 
